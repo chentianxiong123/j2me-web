@@ -80,20 +80,29 @@ export class GamePlayer {
     this.screenCtx.fillRect(0, 0, width, height);
 
     // 日志节流：游戏缺 API 时会在每帧 repaint 里重复抛同一个异常（实测仙剑开声音时
-    // 每秒上千条），不收敛的话 console 和 onLog 回调会被刷爆、主线程直接卡死。
-    // 同一 level+message 只打前 REPEAT_LIMIT 次，之后每 1000 次汇总一条。
+    // 每秒上万条），不收敛的话 console 和 onLog 回调会被刷爆、主线程直接卡死。
+    // 同一 level+message：前 3 次逐条打，之后每 1000 次汇总一条，最多 5 条封顶，
+    // 再之后彻底闭嘴（并记录最终次数），保证输出量有硬上限。
     const REPEAT_LIMIT = 3;
     const REPEAT_EVERY = 1000;
-    const seen = new Map<string, number>();
+    const REPEAT_SUMMARIES = 5;
+    const seen = new Map<string, { n: number; summaries: number }>();
     const log = (level: LogLevel, message: string) => {
       const key = `${level}|${message}`;
-      const n = (seen.get(key) ?? 0) + 1;
-      seen.set(key, n);
-      if (n <= REPEAT_LIMIT || n % REPEAT_EVERY === 0) {
-        const suffix = n <= REPEAT_LIMIT ? '' : ` (×${n})`;
-        (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(`[j2me] ${message}${suffix}`);
-        callbacks.onLog?.(level, message + suffix);
+      const rec = seen.get(key);
+      if (rec === undefined) {
+        seen.set(key, { n: 1, summaries: 0 });
+      } else {
+        rec.n += 1;
+        if (rec.n > REPEAT_LIMIT && rec.n % REPEAT_EVERY !== 0) {
+          if (rec.summaries >= REPEAT_SUMMARIES) return;
+          rec.summaries += 1;
+        }
       }
+      const n = rec ? rec.n : 1;
+      const suffix = n <= REPEAT_LIMIT ? '' : ` (×${n})`;
+      (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(`[j2me] ${message}${suffix}`);
+      callbacks.onLog?.(level, message + suffix);
     };
 
     this.platform = new Platform({

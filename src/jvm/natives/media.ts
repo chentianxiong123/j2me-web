@@ -65,9 +65,57 @@ const playerListener: NativeClassDef = {
   flags: ACC_ABSTRACT | ACC_INTERFACE,
 };
 
+/** javax.microedition.media.Control：所有控制器的基类（MIDP 2.0 里在 media 包下）。 */
+const controlClass: NativeClassDef = {
+  name: 'javax/microedition/media/Control',
+  super: 'java/lang/Object',
+};
+
+/** Controllable：Player 实现的接口，暴露 getControl/getControls。 */
+const controllableClass: NativeClassDef = {
+  name: 'javax/microedition/media/Controllable',
+  flags: ACC_ABSTRACT | ACC_INTERFACE,
+  methods: {
+    'getControl(Ljava/lang/String;)Ljavax/microedition/media/Control;': () => null,
+    'getControls()[Ljavax/microedition/media/Control;': () => new JArray('[Ljavax/microedition/media/Control;', []),
+  },
+};
+
+const volumeControlInterface: NativeClassDef = {
+  name: 'javax/microedition/media/control/VolumeControl',
+  interfaces: ['javax/microedition/media/Control'],
+  flags: ACC_ABSTRACT | ACC_INTERFACE,
+};
+
+/**
+ * 音量控制器的具体实现。游戏拿到 Player 后通常做
+ *   player.getControl("VolumeControl") -> checkcast VolumeControl -> setLevel(x)
+ * 三步，所以 getControl 必须返回一个真的 instanceof VolumeControl 的对象。
+ */
+const volumeControlImpl: NativeClassDef = {
+  name: 'j2me/VolumeControlImpl',
+  interfaces: ['javax/microedition/media/control/VolumeControl'],
+  methods: {
+    '<init>()V': () => {},
+    'getLevel()I': (_t, [self]) => (self.n as number | undefined) ?? 100,
+    'setLevel(I)I': (t, [self, level]) => {
+      if (level < 0 || level > 100) throw t.jvm.throwable('java/lang/IllegalArgumentException', `level ${level}`);
+      self.n = level;
+      return level;
+    },
+    'isMute()Z': () => false,
+    'setMute(Z)V': () => {},
+  },
+};
+
+/** getControl("VolumeControl") 用的共享实例。 */
+function newVolumeControl(t: JThread): JObject {
+  return newNativeObject(t.jvm, 'j2me/VolumeControlImpl', 100);
+}
+
 const playerClass: NativeClassDef = {
   name: 'javax/microedition/media/Player',
-  interfaces: ['javax/microedition/media/PlayerListener'],
+  interfaces: ['javax/microedition/media/Controllable'],
   fields: {
     UNREALIZED: UNREALIZED,
     REALIZED,
@@ -116,8 +164,10 @@ const playerClass: NativeClassDef = {
     'setPriority(I)V': () => {},
     'setMediaLocator(Ljavax/microedition/media/MediaLocator;)V': () => {},
     'getMediaLocator()Ljavax/microedition/media/MediaLocator;': () => null,
-    'getControl(Ljava/lang/String;)Ljavax/microedition/control/Control;': () => null,
-    'getControls()Ljava/lang/String;': () => null,
+    // ★ 描述符必须和 jar 里的常量池逐字一致，否则 invokevirtual 找不到实现 → AbstractMethodError
+    'getControl(Ljava/lang/String;)Ljavax/microedition/media/Control;': (t, [, name]) =>
+      name === 'VolumeControl' ? newVolumeControl(t) : null,
+    'getControls()[Ljavax/microedition/media/Control;': () => new JArray('[Ljavax/microedition/media/Control;', []),
 
     // ---- 监听器：只保留注册，事件不派发 ----
     'addPlayerListener(Ljavax/microedition/media/PlayerListener;)V': () => {},
@@ -190,9 +240,31 @@ const midiDevice: NativeClassDef = {
   },
 };
 
+/** javax.microedition.io.Connection：只补 close()，够「连接用完就关」的老代码。 */
+const connectionClass: NativeClassDef = {
+  name: 'javax/microedition/io/Connection',
+  interfaces: ['javax/microedition/io/InputConnection'],
+  flags: ACC_ABSTRACT | ACC_INTERFACE,
+  methods: {
+    'close()V': () => {},
+  },
+};
+
+const inputConnectionClass: NativeClassDef = {
+  name: 'javax/microedition/io/InputConnection',
+  super: 'javax/microedition/io/Connection',
+  flags: ACC_ABSTRACT | ACC_INTERFACE,
+};
+
 export const mediaNatives: NativeClassDef[] = [
   mediaException,
   playerListener,
+  controlClass,
+  controllableClass,
+  volumeControlInterface,
+  volumeControlImpl,
+  inputConnectionClass,
+  connectionClass,
   playerClass,
   managerClass,
   toneSequence,
