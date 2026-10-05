@@ -79,9 +79,21 @@ export class GamePlayer {
     this.screenCtx.fillStyle = '#000';
     this.screenCtx.fillRect(0, 0, width, height);
 
+    // 日志节流：游戏缺 API 时会在每帧 repaint 里重复抛同一个异常（实测仙剑开声音时
+    // 每秒上千条），不收敛的话 console 和 onLog 回调会被刷爆、主线程直接卡死。
+    // 同一 level+message 只打前 REPEAT_LIMIT 次，之后每 1000 次汇总一条。
+    const REPEAT_LIMIT = 3;
+    const REPEAT_EVERY = 1000;
+    const seen = new Map<string, number>();
     const log = (level: LogLevel, message: string) => {
-      (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(`[j2me] ${message}`);
-      callbacks.onLog?.(level, message);
+      const key = `${level}|${message}`;
+      const n = (seen.get(key) ?? 0) + 1;
+      seen.set(key, n);
+      if (n <= REPEAT_LIMIT || n % REPEAT_EVERY === 0) {
+        const suffix = n <= REPEAT_LIMIT ? '' : ` (×${n})`;
+        (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(`[j2me] ${message}${suffix}`);
+        callbacks.onLog?.(level, message + suffix);
+      }
     };
 
     this.platform = new Platform({
