@@ -276,17 +276,20 @@ const playerClass: NativeClassDef = {
 const managerClass: NativeClassDef = {
   name: 'javax/microedition/media/Manager',
   statics: {
+    // ★ 注意：静态方法的实参直接就是栈上的实参，没有 receiver 占位，
+    //   写成 (t, [, stream]) 会把第 2 个参数（类型字符串）当成流，
+    //   然后 readAllBytes 对一个字符串读 .cls → undefined.vcache。
     // 无字节流的路径（URL / 系统音）：保持「已在播放」语义但不发声
-    'createPlayer(Ljava/lang/String;)Ljavax/microedition/media/Player;': (t, [, url]) => {
+    'createPlayer(Ljava/lang/String;)Ljavax/microedition/media/Player;': (t, [url]) => {
       if (url === null) throw t.jvm.npe('url');
       return newStartedPlayer(t.jvm);
     },
     // ★ 真播放路径：把流里的字节读出来交给 MIDI 合成器
-    'createPlayer(Ljava/io/InputStream;Ljava/lang/String;)Ljavax/microedition/media/Player;': (t, [, stream]) => {
+    'createPlayer(Ljava/io/InputStream;Ljava/lang/String;)Ljavax/microedition/media/Player;': (t, [stream]) => {
       if (stream === null) throw t.jvm.npe('stream');
       return newPlayer(t.jvm, slurp(t, stream));
     },
-    'createPlayer(Ljava/io/InputStream;)Ljavax/microedition/media/Player;': (t, [, stream]) => {
+    'createPlayer(Ljava/io/InputStream;)Ljavax/microedition/media/Player;': (t, [stream]) => {
       if (stream === null) throw t.jvm.npe('stream');
       return newPlayer(t.jvm, slurp(t, stream));
     },
