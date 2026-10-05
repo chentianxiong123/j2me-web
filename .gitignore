@@ -1,8 +1,4 @@
-node_modules
-dist
-.vercel
-.claude
-.env*
+node_modules/
+dist/
 *.local
-*.jar
-*.jad
+.DS_Store
