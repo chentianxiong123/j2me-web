@@ -24,7 +24,7 @@ export class TouchControls {
   ) {
     const dpad = h(
       'div',
-      { class: 'dpad', attrs: { 'aria-label': 'Джойстик' } },
+      { class: 'dpad', attrs: { 'aria-label': '摇杆' } },
       h('span', { class: 'dpad-arrow up' }),
       h('span', { class: 'dpad-arrow right' }),
       h('span', { class: 'dpad-arrow down' }),
@@ -42,7 +42,7 @@ export class TouchControls {
     const keypadToggle = h('button', {
       class: 'touch-btn small',
       text: '123',
-      attrs: { 'aria-label': 'Цифровая клавиатура' },
+      attrs: { 'aria-label': '数字键盘' },
       on: {
         click: () => {
           this.keypad.toggleAttribute('hidden');
@@ -56,13 +56,13 @@ export class TouchControls {
     this.left = h(
       'div',
       { class: 'touch-panel touch-left' },
-      h('div', { class: 'touch-row' }, this.button('◀ Софт', KEY_SOFT_LEFT, 'soft'), keypadToggle),
+      h('div', { class: 'touch-row' }, this.button('◀ 软键', KEY_SOFT_LEFT, 'soft'), keypadToggle),
       dpad,
     );
     this.right = h(
       'div',
       { class: 'touch-panel touch-right' },
-      h('div', { class: 'touch-row end' }, this.button('Софт ▶', KEY_SOFT_RIGHT, 'soft')),
+      h('div', { class: 'touch-row end' }, this.button('软键 ▶', KEY_SOFT_RIGHT, 'soft')),
       h('div', { class: `actions count-${Math.min(actions.length, 5)}` }, ...actions.map((a, i) => this.button(a.label, a.code, i === 0 ? 'action primary' : 'action'))),
     );
   }

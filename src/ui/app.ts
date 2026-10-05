@@ -43,9 +43,9 @@ export class App {
     const dropzone = h(
       'div',
       { class: 'dropzone' },
-      h('button', { class: 'btn primary', text: 'Открыть .jar', on: { click: () => fileInput.click() } }),
-      h('div', { text: 'или перетащи файл игры сюда' }),
-      h('small', { text: 'Файл не загружается на сервер — игра и сохранения остаются только в этом браузере.' }),
+      h('button', { class: 'btn primary', text: '打开 .jar', on: { click: () => fileInput.click() } }),
+      h('div', { text: '或把游戏文件拖到这里' }),
+      h('small', { text: '文件不会上传到服务器 —— 游戏和存档只保存在这个浏览器里。' }),
       fileInput,
     );
     for (const type of ['dragenter', 'dragover'] as const) {
@@ -72,10 +72,10 @@ export class App {
           'header',
           { class: 'brand' },
           h('img', { attrs: { src: '/icon.svg', alt: '' } }),
-          h('div', {}, h('h1', { text: 'J2ME Web Player' }), h('p', { text: 'Java-игры с кнопочных телефонов — в браузере на ПК и телефоне' })),
+          h('div', {}, h('h1', { text: 'J2ME Web Player' }), h('p', { text: '手机上的 Java 游戏（J2ME）—— 在电脑和手机浏览器里直接玩' })),
         ),
         dropzone,
-        h('h2', { class: 'section-title', text: 'Мои игры' }),
+        h('h2', { class: 'section-title', text: '我的游戏' }),
         list,
       ),
     );
@@ -90,7 +90,7 @@ export class App {
       /* IndexedDB unavailable (private mode) */
     }
     if (!games.length) {
-      list.replaceChildren(h('p', { class: 'empty', text: 'Пока пусто. Открой .jar-файл, и игра появится здесь.' }));
+      list.replaceChildren(h('p', { class: 'empty', text: '这里还是空的。打开一个 .jar 文件，游戏就会出现在这里。' }));
       return;
     }
     list.replaceChildren(
@@ -106,7 +106,7 @@ export class App {
             h('button', {
               class: 'btn icon danger',
               text: '✕',
-              attrs: { title: 'Удалить из списка', 'aria-label': 'Удалить' },
+              attrs: { title: '从列表中删除', 'aria-label': '删除' },
               on: {
                 click: async () => {
                   await deleteGame(game.id);
@@ -114,7 +114,7 @@ export class App {
                 },
               },
             }),
-            h('button', { class: 'btn primary', text: 'Играть', on: { click: () => void this.playStored(game.id) } }),
+            h('button', { class: 'btn primary', text: '开始游戏', on: { click: () => void this.playStored(game.id) } }),
           ),
         ),
       ),
@@ -141,14 +141,14 @@ export class App {
       }).catch(() => undefined);
       this.play(bytes, file.name);
     } catch (e) {
-      toast(`Не получилось открыть файл: ${e instanceof Error ? e.message : e}`);
+      toast(`无法打开文件：${e instanceof Error ? e.message : e}`);
     }
   }
 
   private async playStored(id: string): Promise<void> {
     const record = await loadGame(id);
     if (!record) {
-      toast('Игра не найдена');
+      toast('找不到游戏');
       return;
     }
     void touchGame(id);
@@ -164,7 +164,7 @@ export class App {
     try {
       player = new GamePlayer(bytes, fileName, { onHalt: (reason, message) => this.showHalt(reason, message, bytes, fileName) });
     } catch (e) {
-      toast(`Не получилось запустить игру: ${e instanceof Error ? e.message : e}`);
+      toast(`无法启动游戏：${e instanceof Error ? e.message : e}`);
       return;
     }
     this.player = player;
@@ -194,13 +194,13 @@ export class App {
     const touchBtn = h('button', {
       class: 'btn icon',
       text: '🎮',
-      attrs: { title: 'Экранные кнопки', 'aria-label': 'Экранные кнопки' },
+      attrs: { title: '屏幕按键', 'aria-label': '屏幕按键' },
       on: { click: () => setTouch(!view.classList.contains('touch'), true) },
     });
     const fullscreenBtn = h('button', {
       class: 'btn icon',
       text: '⛶',
-      attrs: { title: 'Полный экран', 'aria-label': 'Полный экран' },
+      attrs: { title: '全屏', 'aria-label': '全屏' },
       on: {
         click: () => {
           if (document.fullscreenElement) void document.exitFullscreen();
@@ -213,9 +213,9 @@ export class App {
       h(
         'div',
         { class: 'player-bar' },
-        h('button', { class: 'btn icon', text: '←', attrs: { title: 'К списку игр', 'aria-label': 'Назад' }, on: { click: () => void this.showLibrary() } }),
+        h('button', { class: 'btn icon', text: '←', attrs: { title: '返回游戏列表', 'aria-label': '返回' }, on: { click: () => void this.showLibrary() } }),
         h('div', { class: 'player-title', text: player.info.name }),
-        h('button', { class: 'btn icon', text: '⌨', attrs: { title: 'Управление', 'aria-label': 'Управление' }, on: { click: () => this.showKeys(stage, player) } }),
+        h('button', { class: 'btn icon', text: '⌨', attrs: { title: '操作说明', 'aria-label': '操作说明' }, on: { click: () => this.showKeys(stage, player) } }),
         touchBtn,
         fullscreenBtn,
       ),
@@ -292,9 +292,9 @@ export class App {
       h(
         'div',
         { class: 'overlay-card' },
-        h('h2', { text: 'Управление' }),
+        h('h2', { text: '操作说明' }),
         h('div', { class: 'keys' }, ...rows.flatMap(([key, action]) => [h('kbd', { text: key }), h('span', { text: action })])),
-        h('div', { class: 'row' }, h('button', { class: 'btn primary', text: 'Понятно', on: { click: () => overlay.remove() } })),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', text: '知道了', on: { click: () => overlay.remove() } })),
       ),
     );
     stage.append(overlay);
@@ -310,13 +310,13 @@ export class App {
         h(
           'div',
           { class: 'overlay-card' },
-          h('h2', { text: reason === 'exit' ? 'Игра закрылась' : 'Игра упала' }),
+          h('h2', { text: reason === 'exit' ? '游戏已关闭' : '游戏崩溃了' }),
           reason === 'error' && message ? h('pre', { text: message }) : null,
           h(
             'div',
             { class: 'row' },
-            h('button', { class: 'btn', text: 'К списку', on: { click: () => void this.showLibrary() } }),
-            h('button', { class: 'btn primary', text: 'Запустить снова', on: { click: () => this.play(bytes, fileName) } }),
+            h('button', { class: 'btn', text: '返回列表', on: { click: () => void this.showLibrary() } }),
+            h('button', { class: 'btn primary', text: '重新启动', on: { click: () => this.play(bytes, fileName) } }),
           ),
         ),
       ),

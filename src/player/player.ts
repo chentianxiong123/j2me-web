@@ -64,7 +64,7 @@ export class GamePlayer {
   constructor(bytes: Uint8Array, fileName: string, callbacks: PlayerCallbacks = {}) {
     this.jar = readJar(bytes);
     const midlets = listMidlets(this.jar.manifest);
-    if (!midlets.length) throw new Error('В манифесте JAR нет записи MIDlet-1 — это не J2ME-игра?');
+    if (!midlets.length) throw new Error('JAR 清单里没有 MIDlet-1 —— 这不是 J2ME 游戏？');
     this.midletClass = midlets[0].className;
     this.info = inspectJar(this.jar, fileName);
     this.preset = findPreset(this.info.name, this.info.vendor);
