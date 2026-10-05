@@ -1,0 +1,8 @@
+node_modules
+dist
+.vercel
+.claude
+.env*
+*.local
+*.jar
+*.jad
