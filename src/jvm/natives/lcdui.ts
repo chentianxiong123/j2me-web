@@ -1,4 +1,5 @@
 import { decodePng, isPng } from '../../gfx/png';
+import { cachedJpeg, fingerprint, isGif, isJpeg, jpegSize } from '../../gfx/jpeg';
 import type { DisplayService } from '../../platform/display';
 import { FontPeer } from '../../platform/font';
 import { GraphicsPeer, ImagePeer } from '../../platform/graphics';
@@ -313,13 +314,34 @@ const graphicsClass: NativeClassDef = {
 // Image
 
 function decodeImage(jvm: Jvm, bytes: Uint8Array): ImagePeer {
-  if (!isPng(bytes)) throw jvm.throwable('java/lang/IllegalArgumentException', 'Unsupported image format (only PNG for now)');
-  try {
-    const img = decodePng(bytes);
-    return new ImagePeer(surfaceFromPixels(img.width, img.height, img.data), false);
-  } catch (e) {
-    throw jvm.throwable('java/lang/IllegalArgumentException', `Bad image data: ${e instanceof Error ? e.message : e}`);
+  if (isPng(bytes)) {
+    try {
+      const img = decodePng(bytes);
+      return new ImagePeer(surfaceFromPixels(img.width, img.height, img.data), false);
+    } catch (e) {
+      throw jvm.throwable('java/lang/IllegalArgumentException', `Bad image data: ${e instanceof Error ? e.message : e}`);
+    }
   }
+  if (isJpeg(bytes)) {
+    // 像素必须来自启动时的预解码缓存（浏览器解码 JPEG 是异步的，
+    // 而 createImage 是同步 API，见 gfx/jpeg.ts 的说明）。
+    const cached = cachedJpeg(bytes);
+    if (cached) return new ImagePeer(surfaceFromPixels(cached.width, cached.height, cached.data), false);
+    const size = jpegSize(bytes);
+    const note = size ? `${size.width}x${size.height}` : 'unknown size';
+    // 尺寸拿得到但像素没解出来：给一张同尺寸的空白图，让游戏继续跑
+    // （否则 createImage 抛异常，游戏直接进不去，比白图更糟）。
+    jvm.host.log('warn', `JPEG 未预解码（${note}），先给空白图：${fingerprint(bytes)}`);
+    if (size) return new ImagePeer(createSurface(size.width, size.height, '#ffffff'), false);
+    throw jvm.throwable('java/lang/IllegalArgumentException', 'Cannot decode JPEG');
+  }
+  throw jvm.throwable('java/lang/IllegalArgumentException', unsupportedImageFormat(bytes));
+}
+
+/** 明确告诉开发者是哪种格式不支持，而不是笼统说「只支持 PNG」。 */
+function unsupportedImageFormat(bytes: Uint8Array): string {
+  if (isGif(bytes)) return 'Unsupported image format: GIF (only PNG and JPEG)';
+  return 'Unsupported image format (only PNG and JPEG)';
 }
 
 function newImage(jvm: Jvm, peer: ImagePeer): JObject {

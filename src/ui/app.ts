@@ -231,7 +231,12 @@ export class App {
     this.teardown.push(() => touch.destroy(), () => gamepad.destroy());
     this.attachKeyboard(player, input);
     this.attachScaling(player, stage);
-    player.start();
+    // JPEG 像素必须在 MIDlet 启动前解码完（浏览器异步 vs MIDP 同步 API）。
+    // 解码失败也不阻断启动：createImage 会退化成同尺寸白图。
+    player
+      .prepareImages()
+      .catch((e) => console.warn('[j2me] JPEG 预解码失败：', e))
+      .finally(() => player.start());
   }
 
   private stopPlayer(): void {

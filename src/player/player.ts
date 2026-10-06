@@ -2,6 +2,7 @@ import { type JarFile, listMidlets, readJar } from '../jar/jar';
 import { Jvm } from '../jvm/jvm';
 import { allNatives } from '../jvm/natives';
 import { decodePng, isPng } from '../gfx/png';
+import { prewarmImages } from '../gfx/jpeg';
 import type { KeyEventKind } from '../platform/display';
 import { type LogLevel, Platform } from '../platform/platform';
 import { type ScreenSize, detectScreenSize } from './detect';
@@ -60,6 +61,8 @@ export class GamePlayer {
   readonly platform: Platform;
   private readonly midletClass: string;
   private readonly screenCtx: CanvasRenderingContext2D;
+  /** 构造器里建好的带节流日志函数，prepareImages 等异步流程也要用它。 */
+  private readonly log: (level: LogLevel, message: string) => void;
 
   constructor(bytes: Uint8Array, fileName: string, callbacks: PlayerCallbacks = {}) {
     this.jar = readJar(bytes);
@@ -104,6 +107,7 @@ export class GamePlayer {
       (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(`[j2me] ${message}${suffix}`);
       callbacks.onLog?.(level, message + suffix);
     };
+    this.log = log;
 
     this.platform = new Platform({
       width,
@@ -125,6 +129,27 @@ export class GamePlayer {
     });
     this.jvm = new Jvm({ log, onHalt: (reason, message) => callbacks.onHalt?.(reason, message) }, this.jar.entries, allNatives);
     this.platform.attach(this.jvm);
+  }
+
+  /**
+   * 启动前把 jar 里的 JPEG 全部解码好。
+   *
+   * 浏览器解码 JPEG 是异步的，而 MIDP 的 `Image.createImage(InputStream)` 是同步的，
+   * 所以必须在 MIDlet 跑起来之前把像素准备好，运行时才能同步查表（详见 gfx/jpeg.ts）。
+   * 没有 jpg 的游戏这一句是零成本的空转。
+   */
+  async prepareImages(): Promise<{ decoded: number; failed: number; total: number }> {
+    const result = await prewarmImages(this.jar.entries, (done, total, name) => {
+      if (total > 8 && done % 8 !== 0 && done !== total) return;
+      this.log('info', `预解码 JPEG ${done}/${total}：${name.split('/').pop()}`);
+    });
+    if (result.total > 0) {
+      this.log(
+        'info',
+        `JPEG 预解码完成：${result.decoded}/${result.total} 张成功${result.failed ? `，${result.failed} 张失败` : ''}`,
+      );
+    }
+    return result;
   }
 
   start(): void {
