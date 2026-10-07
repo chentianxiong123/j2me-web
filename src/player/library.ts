@@ -14,12 +14,20 @@ export interface GameRecord {
 
 export type GameSummary = Omit<GameRecord, 'bytes'>;
 
-const DB_NAME = 'j2me-web';
+const DEFAULT_DB_NAME = 'j2me-web';
 const STORE = 'games';
+
+/**
+ * IndexedDB 库名。打包构建会注入自己的名字，避免同域名下多个游戏包
+ * 共用一个库、把彼此的游戏列表混在一起。正常构建用默认值。
+ */
+function dbName(): string {
+  return window.__PACK__?.identity?.databaseName ?? DEFAULT_DB_NAME;
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(dbName(), 1);
     req.onupgradeneeded = () => {
       req.result.createObjectStore(STORE, { keyPath: 'id' });
     };

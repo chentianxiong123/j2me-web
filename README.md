@@ -105,6 +105,29 @@ J2ME_DEV_JAR=/path/to/game.jar
 
 部署：`npm run build` 后把 `dist/` 丢到任意静态服务器即可。构建使用相对路径，放在子目录（`github.io/<repo>`、`/games/j2me/`）也能正常工作。
 
+### 静态托管
+
+构建产物是**纯静态**，没有后端、没有 SSR、没有 WASM、没有 CDN 依赖，没有任何运行时外部请求。丢到哪儿都能跑：
+
+- 任意静态托管：GitHub Pages、Cloudflare Pages、Nginx、对象存储
+- 放子目录可以（`base: './'` 走相对路径）
+- `file://` 直接打开 `index.html` 也能跑
+
+正式构建 4 个文件，gzip 后约 50 KB。
+
+### 单游戏打包（实验性）
+
+除了「上传 jar」的形态，还支持把模拟器和某个游戏编译进**同一个静态页面**，
+打开即玩，不显示库界面，也不出现 jar / J2ME 这些概念：
+
+```bash
+npx vite build --config experiments/pack-jianxin/vite.pack.config.ts
+```
+
+产物同样是纯静态，丢到任意静态托管即可（实测一份商业游戏：3 个文件
+1.72 MB，压缩后 1.20 MB）。游戏 jar 需要自己准备，不入仓库。
+详见 [experiments/README.md](experiments/README.md)。
+
 ---
 
 ## 许可

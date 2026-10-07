@@ -2,3 +2,6 @@ node_modules
 dist
 *.local
 .DS_Store
+
+# 实验目录里的游戏 jar 是商业作品，不能进仓库
+experiments/**/games/*.jar

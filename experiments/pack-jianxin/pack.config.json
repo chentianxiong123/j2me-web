@@ -1,0 +1,21 @@
+{
+  "$comment": "打包配置：构建期注入，产物打开即玩，不需要用户上传 jar。",
+
+  "game": {
+    "name": "仙剑奇侠传-忘情篇",
+    "title": "仙剑奇侠传 忘情篇",
+    "description": "经典国产角色扮演游戏《仙剑奇侠传》忘情篇，在浏览器里直接玩。",
+    "jar": "games/仙剑奇侠传-忘情篇.jar"
+  },
+
+  "identity": {
+    "$comment": "构建期固定，不要从 jar 清单推导——同一域名下部署多个游戏包时，storageId 和 IndexedDB 名必须隔离，否则存档串档。",
+    "storageId": "pack-jianxin-wq",
+    "databaseName": "j2me-web-pack-jianxin"
+  },
+
+  "embed": {
+    "$comment": "jar 以 base64 内嵌进 js：省一次请求，且避开部分托管平台对 .jar 的 MIME 处理差异。实测体积只涨 1.2%。",
+    "mode": "inline"
+  }
+}

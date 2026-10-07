@@ -3,6 +3,7 @@ import { GamepadInput } from '../player/gamepad';
 import { InputManager } from '../player/input';
 import { DEFAULT_KEYMAP, KEY_HELP, physicalCode } from '../player/keymap';
 import { type GameSummary, deleteGame, gameId, listGames, loadGame, saveGame, touchGame } from '../player/library';
+import { isPacked } from '../player/pack';
 import { GamePlayer, inspectJar } from '../player/player';
 import { h, toast } from './dom';
 import { TouchControls } from './touch';
@@ -213,7 +214,9 @@ export class App {
       h(
         'div',
         { class: 'player-bar' },
-        h('button', { class: 'btn icon', text: '←', attrs: { title: '返回游戏列表', 'aria-label': '返回' }, on: { click: () => void this.showLibrary() } }),
+        // 打包模式下没有「游戏列表」可回退，渲染这个按钮只会跳到
+        // 一个只能上传 jar 的空页面，纯属多余
+        isPacked() ? null : h('button', { class: 'btn icon', text: '←', attrs: { title: '返回游戏列表', 'aria-label': '返回' }, on: { click: () => void this.showLibrary() } }),
         h('div', { class: 'player-title', text: player.info.name }),
         h('button', { class: 'btn icon', text: '⌨', attrs: { title: '操作说明', 'aria-label': '操作说明' }, on: { click: () => this.showKeys(stage, player) } }),
         touchBtn,
@@ -320,7 +323,7 @@ export class App {
           h(
             'div',
             { class: 'row' },
-            h('button', { class: 'btn', text: '返回列表', on: { click: () => void this.showLibrary() } }),
+            isPacked() ? null : h('button', { class: 'btn', text: '返回列表', on: { click: () => void this.showLibrary() } }),
             h('button', { class: 'btn primary', text: '重新启动', on: { click: () => this.play(bytes, fileName) } }),
           ),
         ),

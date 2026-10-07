@@ -114,7 +114,9 @@ export class GamePlayer {
       height,
       manifest: this.jar.manifest,
       resources: this.jar.entries,
-      storageId: `${this.info.vendor}|${this.info.name}`,
+      // 打包构建会指定 storageId；默认仍从 jar 清单推导。
+      // 同域名部署多个游戏包时，推导出的 vendor|name 可能撞车导致存档串档。
+      storageId: window.__PACK__?.identity?.storageId ?? `${this.info.vendor}|${this.info.name}`,
       present: (surface) => this.screenCtx.drawImage(surface.canvas, 0, 0),
       vibrate: (ms) => {
         try {
