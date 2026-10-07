@@ -5,6 +5,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
+    // Relative base so the built app works from a subdirectory
+    // (github.io/<repo>, a /games/j2me/ path, or a plain file server).
+    base: './',
     build: { target: 'es2022' },
     plugins: [
       {

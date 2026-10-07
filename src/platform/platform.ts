@@ -66,7 +66,7 @@ export class Platform {
   systemProperty(key: string): string | null {
     switch (key) {
       case 'microedition.platform':
-        return 'j2me-web-player';
+        return 'j2me-web';
       case 'microedition.encoding':
         return 'ISO-8859-1';
       case 'microedition.configuration':

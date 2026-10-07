@@ -1,5 +1,5 @@
 {
-  "name": "j2me-web-player",
+  "name": "j2me-web",
   "private": true,
   "version": "0.1.0",
   "description": "Run classic J2ME (MIDP) phone games in the browser from your own .jar file",

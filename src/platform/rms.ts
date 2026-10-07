@@ -21,7 +21,7 @@ export class RmsService {
   private storageBroken = false;
 
   constructor(storageId: string) {
-    this.prefix = `j2me-web-player:rms:${storageId}:`;
+    this.prefix = `j2me-web:rms:${storageId}:`;
   }
 
   private getItem(key: string): string | null {

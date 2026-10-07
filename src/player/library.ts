@@ -14,7 +14,7 @@ export interface GameRecord {
 
 export type GameSummary = Omit<GameRecord, 'bytes'>;
 
-const DB_NAME = 'j2me-web-player';
+const DB_NAME = 'j2me-web';
 const STORE = 'games';
 
 function openDb(): Promise<IDBDatabase> {

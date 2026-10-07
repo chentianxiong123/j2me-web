@@ -7,7 +7,7 @@ import { GamePlayer, inspectJar } from '../player/player';
 import { h, toast } from './dom';
 import { TouchControls } from './touch';
 
-const TOUCH_PREF_KEY = 'j2me-web-player:touch-controls';
+const TOUCH_PREF_KEY = 'j2me-web:touch-controls';
 
 function prefersTouch(): boolean {
   try {
