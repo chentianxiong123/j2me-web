@@ -442,6 +442,196 @@ const imageClass: NativeClassDef = {
 
 const fp = (f: JObject) => f.n as FontPeer;
 
+/**
+ * AlertType —— 规范里的 5 个常量，只有 INFO/ERROR/警告 有图标，
+ * CONFIRMATION/NONE 什么都不显示。
+ */
+const alertTypeClass: NativeClassDef = {
+  name: 'javax/microedition/lcdui/AlertType',
+  fields: { 'INFO:I': 0, 'ERROR:I': 1, 'WARNING:I': 2, 'CONFIRMATION:I': 3, 'NONE:I': 4 },
+};
+
+interface AlertPeer extends DisplayablePeer {
+  title: string;
+  text: string;
+  image: JObject | null;
+  icon: string | null;
+  imageText: string | null;
+  type: JObject | null;
+  timeout: number;
+  /** 显示时 setCurrent 进来的那个被覆盖的 Displayable。 */
+  prev: JObject | null;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+function alertPeer(self: JObject): AlertPeer {
+  return (self.n ??= {
+    ...peer(self),
+    title: '',
+    text: '',
+    image: null,
+    icon: null,
+    imageText: null,
+    type: null,
+    timeout: -1,
+    prev: null,
+    timer: null,
+  } satisfies AlertPeer);
+}
+
+/** 画一个简易对话框：标题 + 正文，没有图片和图标（真机上那些是小图标，模拟器略）。 */
+function paintAlert(alert: AlertPeer, g: JObject): void {
+  const p = gp(g);
+  const w = p.surface.width;
+  const h = p.surface.height;
+  p.setColor(0xffffff);
+  p.fillRect(0, 0, w, h);
+  p.setColor(0x000000);
+  // 粗边框，视觉上区分对话框和游戏画面
+  p.fillRect(4, 4, w - 8, 1);
+  p.fillRect(4, h - 5, w - 8, 1);
+  p.fillRect(4, 4, 1, h - 8);
+  p.fillRect(w - 5, 4, 1, h - 8);
+  const boxW = w - 24;
+  const boxH = Math.min(80, h - 24);
+  const boxX = 12;
+  const boxY = 12;
+  drawAlertText(alert, g, boxX, boxY, boxW, boxH);
+}
+
+/** 用平台默认字体把标题和正文画进对话框区域（居中、溢出截断）。 */
+function drawAlertText(alert: AlertPeer, g: JObject, x: number, y: number, w: number, h: number): void {
+  const p = gp(g);
+  drawTextWithDefaultFont(p, alert.title, x + 4, y + 4, w - 8, true);
+  drawTextWithDefaultFont(p, alert.text, x + 4, y + 20, w - 8, false);
+  void h;
+}
+
+/**
+ * 用当前 Graphics 绑定的字体绘制一段文本，自动换行。
+ * 不改 font.style（FontPeer 的 style/css 是只读的，改了缓存就对不上了），
+ * 标题的加粗效果直接交给 canvas 用默认字体画。
+ */
+function drawTextWithDefaultFont(p: GraphicsPeer, text: string, x: number, y: number, maxWidth: number, _bold: boolean): void {
+  if (!text) return;
+  const font = p.font;
+  const lineHeight = font.height + 2;
+  let cx = x;
+  let cy = y + font.height;
+  const limit = y + 400;
+  for (const ch of text) {
+    const cw = font.charWidth(ch.charCodeAt(0));
+    if (cx + cw > x + maxWidth) {
+      cx = x;
+      cy += lineHeight;
+      if (cy > limit) return; // 兜底，别把对话框画穿
+    }
+    p.drawString(ch, cx, cy, 0 /* TOP_LEFT */);
+    cx += cw;
+  }
+}
+
+/**
+ * Alert —— 仙剑在存档成功后会 `new Alert(...)` 再 `setTimeout(ALERT_TIMEOUT)`，
+ * 类缺失时存档流程会抛 NoClassDefFoundError。
+ *
+ * 这里给出能真正显示的实现：setCurrent(alert) 直接画对话框，
+ * 任何按键或命令都关掉并恢复上一个 Displayable；timeout 到点自动关。
+ */
+const alertClass: NativeClassDef = {
+  name: 'javax/microedition/lcdui/Alert',
+  super: 'javax/microedition/lcdui/Displayable',
+  fields: { 'FORCE:I': 0 },
+  methods: {
+    '<init>(Ljava/lang/String;)V': (_t, [self]) => void alertPeer(self),
+    '<init>(Ljava/lang/String;Ljava/lang/String;Ljavax/microedition/lcdui/Image;)V': (_t, [self, title, text, img]) => {
+      const a = alertPeer(self);
+      a.title = title ?? '';
+      a.text = text ?? '';
+      a.image = img;
+    },
+    '<init>(Ljava/lang/String;Ljava/lang/String;Ljavax/microedition/lcdui/Image;Ljavax/microedition/lcdui/AlertType;)V': (
+      _t,
+      [self, title, text, img, type],
+    ) => {
+      const a = alertPeer(self);
+      a.title = title ?? '';
+      a.text = text ?? '';
+      a.image = img;
+      a.type = type;
+    },
+    '<init>(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V': (_t, [self, title, text]) => {
+      const a = alertPeer(self);
+      a.title = title ?? '';
+      a.text = text ?? '';
+    },
+    '<init>(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljavax/microedition/lcdui/Image;)V': (
+      _t,
+      [self, title, text, icon, img],
+    ) => {
+      const a = alertPeer(self);
+      a.title = title ?? '';
+      a.text = text ?? '';
+      a.image = img;
+      a.icon = icon;
+    },
+    // 这个签名是 (title, text, imageIconPath, imageURL)：两个字符串都不是 Image
+    '<init>(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V': (_t, [self, title, text, icon, url]) => {
+      const a = alertPeer(self);
+      a.title = title ?? '';
+      a.text = text ?? '';
+      a.icon = icon;
+      a.imageText = url;
+    },
+    'getTitle()Ljava/lang/String;': (_t, [self]) => alertPeer(self).title,
+    'setTitle(Ljava/lang/String;)V': (_t, [self, s]) => {
+      alertPeer(self).title = s ?? '';
+    },
+    'getString()Ljava/lang/String;': (_t, [self]) => alertPeer(self).text,
+    'setString(Ljava/lang/String;)V': (_t, [self, s]) => {
+      alertPeer(self).text = s ?? '';
+    },
+    'getImage()Ljavax/microedition/lcdui/Image;': (_t, [self]) => alertPeer(self).image,
+    'setImage(Ljavax/microedition/lcdui/Image;)V': (_t, [self, img]) => {
+      alertPeer(self).image = img;
+    },
+    'getImageType()I': () => 1 /* IMAGE_MEDIA */,
+    'getTimeout()I': (_t, [self]) => alertPeer(self).timeout,
+    'setTimeout(I)V': (t, [self, ms]) => {
+      const a = alertPeer(self);
+      a.timeout = ms;
+      if (a.timer !== null) {
+        clearTimeout(a.timer);
+        a.timer = null;
+      }
+      // FOREVER 不自动关
+      if (ms === 0 || ms < 0) return;
+      a.timer = setTimeout(() => {
+        a.timer = null;
+        display(t).dismissAlert(self, true);
+      }, ms);
+    },
+    'getType()Ljavax/microedition/lcdui/AlertType;': (_t, [self]) => alertPeer(self).type,
+    'setType(Ljavax/microedition/lcdui/AlertType;)V': (_t, [self, type]) => {
+      alertPeer(self).type = type;
+    },
+    // ---- 以下是让它变成一个能显示、能被按键/命令关掉的 Displayable ----
+    'showNotify()V': (t, [self]) => {
+      const d = display(t);
+      const g = d.screenGraphics();
+      paintAlert(alertPeer(self), g);
+      d.present();
+    },
+    'paint(Ljavax/microedition/lcdui/Graphics;)V': (_t, [self, g]) => paintAlert(alertPeer(self), g),
+    'keyPressed(I)V': (t, [self]) => display(t).dismissAlert(self, false),
+    'keyReleased(I)V': noop,
+    'keyRepeated(I)V': noop,
+    'pointerPressed(II)V': (t, [self, _x, _y]) => display(t).dismissAlert(self, false),
+    'pointerReleased(II)V': noop,
+    'pointerDragged(II)V': noop,
+  },
+};
+
 const fontClass: NativeClassDef = {
   name: 'javax/microedition/lcdui/Font',
   fields: {
@@ -492,6 +682,8 @@ export const lcduiNatives: NativeClassDef[] = [
   graphicsClass,
   imageClass,
   fontClass,
+  alertTypeClass,
+  alertClass,
 ];
 
 export { JArray };

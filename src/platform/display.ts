@@ -63,6 +63,16 @@ export class DisplayService {
       return;
     }
     const prev = this.current;
+    // Alert 要记下被覆盖的对象，关闭时恢复（Alert 本身是唯一被画出来的 Displayable）
+    if (next && this.jvm.isInstance(next, 'javax/microedition/lcdui/Alert')) {
+      const ap = next.n as { prev?: JObject | null; timer?: ReturnType<typeof setTimeout> | null };
+      ap.prev = prev;
+      ap.timer = null;
+      this.current = next;
+      if (prev && this.isCanvas(prev)) this.callLater(prev, 'hideNotify()V', []);
+      this.callLater(next, 'showNotify()V', []);
+      return;
+    }
     this.current = next;
     if (prev && this.isCanvas(prev)) this.callLater(prev, 'hideNotify()V', []);
     if (next && this.isCanvas(next)) {
@@ -71,6 +81,49 @@ export class DisplayService {
     } else if (next) {
       this.platform.config.log('warn', `Screen-based UI (${next.cls.name}) is not supported yet`);
     }
+  }
+
+  /**
+   * 关掉当前显示的 Alert，回到它覆盖的那个 Displayable。
+   *
+   * Alert 是本模拟器里唯一被真正画出来的非 Canvas Displayable，
+   * 所以它不走 setCurrent 的 Screen 分支，而是在这里单独收尾：
+   * 记下被覆盖的对象 → 恢复 current → 触发 hideNotify → 重绘。
+   *
+   * @param fromTimeout true 表示是 setTimeout 到点自动关（不再回传命令）。
+   */
+  dismissAlert(alert: JObject, fromTimeout: boolean): void {
+    if (this.current !== alert) return;
+    const peer = alert.n as { prev?: JObject | null; timer?: ReturnType<typeof setTimeout> | null } | null;
+    if (peer?.timer) {
+      clearTimeout(peer.timer);
+      peer.timer = null;
+    }
+    const prev = peer?.prev ?? null;
+    this.current = prev;
+    if (prev) {
+      if (this.isCanvas(prev)) {
+        this.callLater(prev, 'showNotify()V', []);
+        this.requestRepaint();
+      }
+    }
+    if (!fromTimeout) {
+      // 用户按键关掉时，按 MIDP 语义把选择结果回传给游戏
+      const listener = prev?.n ? (prev.n as { listener?: JObject | null }).listener : null;
+      if (listener) {
+        const cmd = this.okCommand(listener);
+        if (cmd) this.callLater(listener, 'commandAction(Ljavax/microedition/lcdui/Command;Ljavax/microedition/lcdui/Displayable;)V', [
+          cmd,
+          prev,
+        ]);
+      }
+    }
+  }
+
+  /** 在命令监听器上找 OK 命令（Alert 按键关闭时按 MIDP 规范选它）。 */
+  private okCommand(listener: JObject): JObject | null {
+    const commands = (listener.n as { commands?: JObject[] } | null)?.commands ?? [];
+    return commands.find((c) => (c.n as { type?: number }).type === 1 /* COMMAND_OK */) ?? null;
   }
 
   callLater(obj: JObject, key: string, args: JValue[]): void {
@@ -160,6 +213,11 @@ export class DisplayService {
       }
     }
     const key = kind === 'pressed' ? 'keyPressed(I)V' : kind === 'released' ? 'keyReleased(I)V' : 'keyRepeated(I)V';
+    // Alert 处于前台时，按键只用来关掉对话框，不派发给游戏
+    if (kind === 'pressed' && this.current && this.jvm.isInstance(this.current, 'javax/microedition/lcdui/Alert')) {
+      this.dismissAlert(this.current, false);
+      return;
+    }
     jvm.postEvent((t) => {
       const canvas = this.current;
       if (!canvas || !this.isCanvas(canvas)) return false;

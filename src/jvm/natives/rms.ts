@@ -108,6 +108,24 @@ const recordStoreClass: NativeClassDef = {
     },
   },
   methods: {
+    // MIDP 里 closeRecordStore(String) 是 RecordStore 的静态方法，
+    // 实例关闭方法是 close()。两个都要有：只实现其中一个，
+    // 游戏调另一个就会 AbstractMethodError（实测踩过）。
+    'closeRecordStore(Ljava/lang/String;)V': (t, [name]) => {
+      const obj = openStores(t).get(name);
+      if (!obj) return;
+      (obj.n as StorePeer).openCount = 0;
+      obj.n = { ...(obj.n as StorePeer), listeners: [] } satisfies StorePeer;
+      openStores(t).delete(name);
+    },
+    'close()V': (t, [self]) => {
+      const peer = store(t, self);
+      if (--peer.openCount === 0) {
+        peer.listeners = [];
+        openStores(t).delete(peer.name);
+      }
+    },
+    // 兼容早期 MIDP 1.0 里被误当实例方法的写法
     'closeRecordStore()V': (t, [self]) => {
       const peer = store(t, self);
       if (--peer.openCount === 0) {
@@ -132,10 +150,18 @@ const recordStoreClass: NativeClassDef = {
     },
     'setRecord(I[BII)V': (t, [self, id, data, off, len]) => {
       const peer = store(t, self);
-      recordOrThrow(t, peer, id);
+      // MIDP 规范：setRecord 是「新建或覆盖」，记录不存在时必须创建。
+      // 之前这里调 recordOrThrow 会抛 InvalidRecordIDException，
+      // 导致「写新存档」直接失败（仙剑就是这样存的）。
+      const existed = peer.data.records.has(id);
       peer.data.records.set(id, toBytes(t, data, off, len));
       persist(t, peer);
-      notifyListeners(t, self, 'recordChanged(Ljavax/microedition/rms/RecordStore;I)V', id);
+      notifyListeners(
+        t,
+        self,
+        existed ? 'recordChanged(Ljavax/microedition/rms/RecordStore;I)V' : 'recordAdded(Ljavax/microedition/rms/RecordStore;I)V',
+        id,
+      );
     },
     'deleteRecord(I)V': (t, [self, id]) => {
       const peer = store(t, self);
@@ -149,12 +175,19 @@ const recordStoreClass: NativeClassDef = {
       const rec = recordOrThrow(t, store(t, self), id);
       return rec.length ? toJavaBytes(rec) : null;
     },
-    'getRecord(I[BI)I': (t, [self, id, buffer, offset]) => {
-      const rec = recordOrThrow(t, store(t, self), id);
+    'getRecord(I[BII)I': (t, [self, id, buffer, offset, len]) => {
+      const peer = store(t, self);
+      const rec = recordOrThrow(t, peer, id);
       if (buffer === null) throw t.jvm.npe();
-      if (offset < 0 || offset + rec.length > buffer.d.length) throw t.jvm.throwable('java/lang/ArrayIndexOutOfBoundsException');
-      (buffer.d as Int8Array).set(new Int8Array(rec.buffer, rec.byteOffset, rec.length), offset);
-      return rec.length;
+      // 长度不能超过记录真实长度，也不能越界；规范允许读到短一点
+      const want = Math.max(0, len);
+      if (offset < 0 || want > rec.length || offset + want > (buffer.d as Int8Array).length) {
+        throw t.jvm.throwable('java/lang/ArrayIndexOutOfBoundsException');
+      }
+      const n = Math.min(want, rec.length);
+      (buffer.d as Int8Array).set(new Int8Array(rec.buffer, rec.byteOffset, n), offset);
+      // 返回实际读入的字节数
+      return n;
     },
     'enumerateRecords(Ljavax/microedition/rms/RecordFilter;Ljavax/microedition/rms/RecordComparator;Z)Ljavax/microedition/rms/RecordEnumeration;':
       (t, [self, filter, comparator]) => {

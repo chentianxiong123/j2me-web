@@ -304,6 +304,413 @@ const dateClass: NativeClassDef = {
   },
 };
 
+// Calendar
+//
+// 仙剑存档槽类 b 的构造函数（b.<init>(I,[I,J,String,String,String,String)V 第 40 字节码）
+// 调 b.a(long) 把时间戳格式化成人读的日期：
+//
+//   Calendar.getInstance() → setTime(new Date(ms))
+//   get(MONTH)+1, get(DAY_OF_MONTH), get(HOUR_OF_DAY), get(MINUTE)
+//
+// 缺 java/util/Calendar 时这里抛 NoClassDefFoundError，构造函数直接失败，
+// 整个存档流程（在给存档槽标时间时）就崩了。所以这个类是存档的硬依赖。
+//
+// MIDP 2.0 / CLDC 1.1 只规定了 Calendar 抽象类和 GregorianCalendar，
+// 字段常量也是规范里那几个，实现足够游戏用了。
+const CAL_FIELD = {
+  ERA: 0,
+  YEAR: 1,
+  MONTH: 2,
+  WEEK_OF_YEAR: 3,
+  WEEK_OF_MONTH: 4,
+  DAY_OF_MONTH: 5,
+  DAY_OF_YEAR: 6,
+  DAY_OF_WEEK: 7,
+  DAY_OF_WEEK_IN_MONTH: 8,
+  AM_PM: 9,
+  HOUR: 10,
+  HOUR_OF_DAY: 11,
+  MINUTE: 12,
+  SECOND: 13,
+  MILLISECOND: 14,
+  ZONE_OFFSET: 15,
+  DST_OFFSET: 16,
+  AM: 0,
+  PM: 1,
+} as const;
+
+/** 取 Calendar 的毫秒时间（peer 存在 .n，和 Date 一致）。 */
+function calendarTime(self: JObject): Date {
+  return new Date(Number(self.n));
+}
+
+const calendarClass: NativeClassDef = {
+  name: 'java/util/Calendar',
+  flags: ACC_ABSTRACT,
+  fields: {
+    'ERA:I': 0,
+    'YEAR:I': 1,
+    'MONTH:I': 2,
+    'WEEK_OF_YEAR:I': 3,
+    'WEEK_OF_MONTH:I': 4,
+    'DAY_OF_MONTH:I': 5,
+    'DAY_OF_YEAR:I': 6,
+    'DAY_OF_WEEK:I': 7,
+    'DAY_OF_WEEK_IN_MONTH:I': 8,
+    'AM_PM:I': 9,
+    'HOUR:I': 10,
+    'HOUR_OF_DAY:I': 11,
+    'MINUTE:I': 12,
+    'SECOND:I': 13,
+    'MILLISECOND:I': 14,
+    'ZONE_OFFSET:I': 15,
+    'DST_OFFSET:I': 16,
+    'AM:I': 0,
+    'PM:I': 1,
+  },
+  statics: {
+    'getInstance()Ljava/util/Calendar;': (t) => newCalendar(t, 'java/util/GregorianCalendar', BigInt(Date.now())),
+    'getInstance(Ljava/util/Locale;)Ljava/util/Calendar;': (t) => newCalendar(t, 'java/util/GregorianCalendar', BigInt(Date.now())),
+    'getInstance(Ljava/lang/String;)Ljava/util/Calendar;': (t) => newCalendar(t, 'java/util/GregorianCalendar', BigInt(Date.now())),
+    'getInstance(Ljava/util/TimeZone;)Ljava/util/Calendar;': (t) => newCalendar(t, 'java/util/GregorianCalendar', BigInt(Date.now())),
+  },
+  methods: {
+    'get(I)I': (_t, [self, field]) => calendarField(calendarTime(self), field),
+    'set(I I)V': (_t, [self, field, value]) => {
+      // 规范里允许 set(field, value) 逐项改，这里直接按字段偏移回去
+      const d = calendarTime(self);
+      const next = applyField(d, field, value);
+      self.n = BigInt(next.getTime());
+    },
+    'set(Ljava/util/Date;)V': (_t, [self, date]) => {
+      self.n = date.n;
+    },
+    'getTime()J': (_t, [self]) => self.n,
+    'setTimeInMillis(J)V': (_t, [self, ms]) => {
+      self.n = ms;
+    },
+    'setTime(Ljava/util/Date;)V': (_t, [self, date]) => {
+      if (date === null) throw _t.jvm.npe();
+      self.n = date.n;
+    },
+    'getTimeZone()Ljava/util/TimeZone;': (t, [self]) => {
+      const tz = new JObject(t.jvm.loadClass('java/util/TimeZone'));
+      tz.n = 'Etc/GMT';
+      return tz;
+    },
+    'setTimeZone(Ljava/util/TimeZone;)V': () => {},
+    'getFirstDayOfWeek()I': () => 1,
+    'setFirstDayOfWeek(I)V': () => {},
+    'getMinimalDaysInFirstWeek()I': () => 1,
+    'setMinimalDaysInFirstWeek(I)V': () => {},
+    'getLenient()Z': () => true,
+    'setLenient(Z)V': () => {},
+    'clear()V': (_t, [self]) => {
+      self.n = 0n;
+    },
+    'isSet(I)Z': () => true,
+    'add(I I)V': (_t, [self, field, amount]) => {
+      const d = calendarTime(self);
+      self.n = BigInt(addField(d, field, amount).getTime());
+    },
+    'roll(I I)V': (_t, [self, field, amount]) => {
+      const d = calendarTime(self);
+      self.n = BigInt(rollField(d, field, amount).getTime());
+    },
+    'clone()Ljava/lang/Object;': (t, [self]) => {
+      const c = new JObject(t.jvm.loadClass(self.cls.name));
+      c.n = self.n;
+      return c;
+    },
+    'toString()Ljava/lang/String;': (_t, [self]) => {
+      const d = calendarTime(self);
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    },
+  },
+};
+
+function newCalendar(t: JThread, clsName: string, ms: bigint): JObject {
+  const c = new JObject(t.jvm.loadClass(clsName));
+  c.n = ms;
+  return c;
+}
+
+function calendarField(d: Date, field: number): number {
+  switch (field) {
+    case CAL_FIELD.ERA:
+      return d.getFullYear() > 0 ? 1 : 0;
+    case CAL_FIELD.YEAR:
+      return d.getFullYear();
+    case CAL_FIELD.MONTH:
+      return d.getMonth();
+    case CAL_FIELD.WEEK_OF_YEAR:
+      return weekOfYear(d);
+    case CAL_FIELD.WEEK_OF_MONTH:
+      return Math.floor((d.getDate() - 1) / 7) + 1;
+    case CAL_FIELD.DAY_OF_MONTH:
+      return d.getDate();
+    case CAL_FIELD.DAY_OF_YEAR:
+      return dayOfYear(d);
+    case CAL_FIELD.DAY_OF_WEEK:
+      return d.getDay();
+    case CAL_FIELD.DAY_OF_WEEK_IN_MONTH:
+      return Math.ceil(d.getDate() / 7);
+    case CAL_FIELD.AM_PM:
+      return d.getHours() < 12 ? CAL_FIELD.AM : CAL_FIELD.PM;
+    case CAL_FIELD.HOUR:
+      return d.getHours() % 12;
+    case CAL_FIELD.HOUR_OF_DAY:
+      return d.getHours();
+    case CAL_FIELD.MINUTE:
+      return d.getMinutes();
+    case CAL_FIELD.SECOND:
+      return d.getSeconds();
+    case CAL_FIELD.MILLISECOND:
+      return d.getMilliseconds();
+    case CAL_FIELD.ZONE_OFFSET:
+    case CAL_FIELD.DST_OFFSET:
+      return 0; // 一律当 UTC+0，浏览器本地时区会随用户改，模拟器固定更可复现
+    default:
+      return 0;
+  }
+}
+
+/** 把某字段改成目标值，其余字段不动；溢出的字段按 Java 宽松模式进位。 */
+function applyField(d: Date, field: number, value: number): Date {
+  const y = d.getFullYear();
+  const next = new Date(d.getTime());
+  switch (field) {
+    case CAL_FIELD.YEAR:
+      next.setFullYear(value);
+      break;
+    case CAL_FIELD.MONTH:
+      next.setFullYear(y, value);
+      break;
+    case CAL_FIELD.DAY_OF_MONTH:
+      next.setDate(value);
+      break;
+    case CAL_FIELD.HOUR_OF_DAY:
+      next.setHours(value);
+      break;
+    case CAL_FIELD.HOUR:
+      next.setHours((value % 12) + (d.getHours() < 12 ? 0 : 12));
+      break;
+    case CAL_FIELD.MINUTE:
+      next.setMinutes(value);
+      break;
+    case CAL_FIELD.SECOND:
+      next.setSeconds(value);
+      break;
+    case CAL_FIELD.MILLISECOND:
+      next.setMilliseconds(value);
+      break;
+    case CAL_FIELD.WEEK_OF_MONTH:
+      next.setDate(d.getDate() - (d.getDate() - 1) % 7 + (value - 1) * 7);
+      break;
+    case CAL_FIELD.DAY_OF_YEAR:
+      next.setFullYear(y, 0, value);
+      break;
+    case CAL_FIELD.DAY_OF_WEEK:
+      next.setDate(d.getDate() + ((value - d.getDay() + 7) % 7));
+      break;
+    default:
+      break;
+  }
+  return next;
+}
+
+/** add：按字段的自然长度进位（month 加 1 是一整月，不是加 1 天）。 */
+function addField(d: Date, field: number, amount: number): Date {
+  const next = new Date(d.getTime());
+  switch (field) {
+    case CAL_FIELD.YEAR:
+      next.setFullYear(next.getFullYear() + amount);
+      break;
+    case CAL_FIELD.MONTH:
+      next.setMonth(next.getMonth() + amount);
+      break;
+    case CAL_FIELD.WEEK_OF_YEAR:
+    case CAL_FIELD.WEEK_OF_MONTH:
+      next.setDate(next.getDate() + amount * 7);
+      break;
+    case CAL_FIELD.DAY_OF_YEAR:
+    case CAL_FIELD.DAY_OF_MONTH:
+    case CAL_FIELD.DAY_OF_WEEK:
+    case CAL_FIELD.DAY_OF_WEEK_IN_MONTH:
+      next.setDate(next.getDate() + amount);
+      break;
+    case CAL_FIELD.HOUR:
+    case CAL_FIELD.HOUR_OF_DAY:
+      next.setHours(next.getHours() + amount);
+      break;
+    case CAL_FIELD.MINUTE:
+      next.setMinutes(next.getMinutes() + amount);
+      break;
+    case CAL_FIELD.SECOND:
+      next.setSeconds(next.getSeconds() + amount);
+      break;
+    case CAL_FIELD.MILLISECOND:
+      next.setMilliseconds(next.getMilliseconds() + amount);
+      break;
+    default:
+      break;
+  }
+  return next;
+}
+
+/** roll：进位给上一级字段，但本字段自身回绕（add 和 roll 的区别）。 */
+function rollField(d: Date, field: number, amount: number): Date {
+  const next = new Date(d.getTime());
+  switch (field) {
+    case CAL_FIELD.MONTH: {
+      // 回绕到 0-11，多出来的进位给年份
+      const total = next.getMonth() + amount;
+      const m = ((total % 12) + 12) % 12;
+      next.setMonth(m);
+      next.setFullYear(next.getFullYear() + Math.floor(total / 12));
+      break;
+    }
+    case CAL_FIELD.HOUR_OF_DAY:
+      next.setHours(((next.getHours() + amount) % 24 + 24) % 24);
+      break;
+    case CAL_FIELD.HOUR: {
+      const h = next.getHours() % 12;
+      const total = h + amount;
+      next.setHours((((total % 12) + 12) % 12) + (next.getHours() < 12 ? 0 : 12));
+      break;
+    }
+    case CAL_FIELD.MINUTE:
+      next.setMinutes(((next.getMinutes() + amount) % 60 + 60) % 60);
+      break;
+    case CAL_FIELD.SECOND:
+      next.setSeconds(((next.getSeconds() + amount) % 60 + 60) % 60);
+      break;
+    case CAL_FIELD.DAY_OF_MONTH:
+      next.setDate((((next.getDate() - 1 + amount) % 31 + 31) % 31) + 1);
+      break;
+    default:
+      return addField(d, field, amount);
+  }
+  return next;
+}
+
+function dayOfYear(d: Date): number {
+  const start = new Date(d.getFullYear(), 0, 1);
+  return Math.floor((d.getTime() - start.getTime()) / 86400000) + 1;
+}
+
+function weekOfYear(d: Date): number {
+  return Math.floor((dayOfYear(d) + 6 - ((new Date(d.getFullYear(), 0, 1).getDay() + 6) % 7)) / 7) + 1;
+}
+
+const gregorianCalendarClass: NativeClassDef = {
+  name: 'java/util/GregorianCalendar',
+  super: 'java/util/Calendar',
+  methods: {
+    '<init>()V': (_t, [self]) => {
+      self.n = BigInt(Date.now());
+    },
+    '<init>(III)V': (_t, [self, y, m, d]) => {
+      self.n = BigInt(new Date(y, m, d, 0, 0, 0, 0).getTime());
+    },
+    '<init>(IIII)V': (_t, [self, y, m, d, h]) => {
+      self.n = BigInt(new Date(y, m, d, h, 0, 0, 0).getTime());
+    },
+    '<init>(IIIII)V': (_t, [self, y, m, d, h, mi]) => {
+      self.n = BigInt(new Date(y, m, d, h, mi, 0, 0).getTime());
+    },
+    '<init>(IIIIII)V': (_t, [self, y, m, d, h, mi, s]) => {
+      self.n = BigInt(new Date(y, m, d, h, mi, s, 0).getTime());
+    },
+    '<init>(IIIIIII)V': (_t, [self, y, m, d, h, mi, s, ms]) => {
+      self.n = BigInt(new Date(y, m, d, h, mi, s, ms).getTime());
+    },
+    '<init>(Ljava/util/TimeZone;)V': (_t, [self]) => {
+      self.n = BigInt(Date.now());
+    },
+    '<init>(Ljava/util/Locale;)V': (_t, [self]) => {
+      self.n = BigInt(Date.now());
+    },
+    'isLeapYear(I)Z': (_t, [_s, y]) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0,
+    'getActualMaximum(I)I': (_t, [_s, field]) => maxFor(field, false),
+    'getActualMinimum(I)I': (_t, [_s, field]) => minFor(field),
+    'getMaximum(I)I': (_t, [_s, field]) => maxFor(field, false),
+    'getMinimum(I)I': (_t, [_s, field]) => minFor(field),
+  },
+};
+
+/** 各字段的自然取值范围（够用即可，时区固定 UTC+0 所以没有 DST 差异）。 */
+function maxFor(field: number, _inDST: boolean): number {
+  switch (field) {
+    case CAL_FIELD.ERA:
+      return 1;
+    case CAL_FIELD.YEAR:
+      return 292278994;
+    case CAL_FIELD.MONTH:
+      return 11;
+    case CAL_FIELD.WEEK_OF_YEAR:
+      return 53;
+    case CAL_FIELD.WEEK_OF_MONTH:
+      return 6;
+    case CAL_FIELD.DAY_OF_MONTH:
+      return 31;
+    case CAL_FIELD.DAY_OF_YEAR:
+      return 366;
+    case CAL_FIELD.DAY_OF_WEEK:
+      return 6;
+    case CAL_FIELD.DAY_OF_WEEK_IN_MONTH:
+      return 6;
+    case CAL_FIELD.AM_PM:
+      return 1;
+    case CAL_FIELD.HOUR:
+      return 11;
+    case CAL_FIELD.HOUR_OF_DAY:
+      return 23;
+    case CAL_FIELD.MINUTE:
+      return 59;
+    case CAL_FIELD.SECOND:
+      return 59;
+    case CAL_FIELD.MILLISECOND:
+      return 999;
+    default:
+      return 0;
+  }
+}
+
+function minFor(field: number): number {
+  switch (field) {
+    case CAL_FIELD.DAY_OF_WEEK_IN_MONTH:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/** 有些游戏会 new TimeZone()/getDefault()，给个固定 UTC 免得 NoClassDefFoundError。 */
+const timeZoneClass: NativeClassDef = {
+  name: 'java/util/TimeZone',
+  statics: {
+    'getDefault()Ljava/util/TimeZone;': (t) => {
+      const tz = new JObject(t.jvm.loadClass('java/util/TimeZone'));
+      tz.n = 'Etc/GMT';
+      return tz;
+    },
+    'getTimeZone(Ljava/lang/String;)Ljava/util/TimeZone;': (t) => {
+      const tz = new JObject(t.jvm.loadClass('java/util/TimeZone'));
+      tz.n = 'Etc/GMT';
+      return tz;
+    },
+  },
+  methods: {
+    'getID()Ljava/lang/String;': (_t, [self]) => (self.n as string) ?? 'Etc/GMT',
+    'getOffset(I)I': () => 0,
+    'getRawOffset()I': () => 0,
+    'inDaylightTime()Z': () => false,
+    'useDaylightTime()Z': () => false,
+  },
+};
+
 interface TimerTaskPeer {
   cancelled: boolean;
   handle: ReturnType<typeof setTimeout> | null;
@@ -402,6 +809,9 @@ export const utilNatives: NativeClassDef[] = [
   nativeEnumeration,
   hashtableClass,
   dateClass,
+  calendarClass,
+  gregorianCalendarClass,
+  timeZoneClass,
   timerClass,
   timerTaskClass,
 ];
