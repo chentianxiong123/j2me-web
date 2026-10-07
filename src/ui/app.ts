@@ -7,10 +7,12 @@ import { isPacked } from '../player/pack';
 import { GamePlayer, inspectJar } from '../player/player';
 import {
   applySaveFile,
-  buildSaveFile,
-  checkSameGame,
+  buildAppSave,
+  buildBackup,
+  describeSize,
   downloadSaveFile,
-  makeGameRef,
+  findAppFor,
+  jarBytesOf,
   parseSaveFile,
 } from '../player/saveio';
 import { h, toast } from './dom';
@@ -86,6 +88,7 @@ export class App {
           h('div', {}, h('h1', { text: 'J2ME Web Player' }), h('p', { text: '手机上的 Java 游戏（J2ME）—— 在电脑和手机浏览器里直接玩' })),
         ),
         dropzone,
+        this.buildBackupBar(),
         h('h2', { class: 'section-title', text: '我的游戏' }),
         list,
       ),
@@ -321,21 +324,105 @@ export class App {
   }
 
   /**
-   * 存档导入导出对话框。
+   * 全量备份条：两个按钮，不问用户任何选项。
+   * 「备份全部」把所有游戏的进度 + jar 写进一个文件；
+   * 「恢复备份」读回来，文件里有几个游戏就写几个。
+   */
+  private buildBackupBar(): HTMLElement {
+    const input = h('input', { attrs: { type: 'file', accept: '.jsav,application/json' } }) as HTMLInputElement;
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      input.value = '';
+      if (file) void this.restoreBackup(file);
+    });
+
+    return h(
+      'div',
+      { class: 'backup-bar' },
+      h('span', { class: 'hint', text: '存档只存在这个浏览器里。换设备或清缓存前先备份。' }),
+      h(
+        'div',
+        { class: 'row' },
+        h('button', { class: 'btn', text: '恢复备份', on: { click: () => input.click() } }),
+        h('button', { class: 'btn primary', text: '备份全部', on: { click: () => void this.exportBackup() } }),
+      ),
+      input,
+    );
+  }
+
+  private async exportBackup(): Promise<void> {
+    try {
+      const games = await listGames();
+      const withBytes = await Promise.all(
+        games.map(async (g) => {
+          const record = await loadGame(g.id);
+          return record ? { game: { name: g.name, vendor: g.vendor, fileName: g.fileName }, storageId: `${g.vendor}|${g.name}`, bytes: new Uint8Array(record.bytes) } : null;
+        }),
+      );
+      const file = buildBackup(withBytes.filter((x) => x !== null));
+      if (!file.apps.length) {
+        toast('还没有可备份的内容');
+        return;
+      }
+      downloadSaveFile(file, 'j2me-web');
+      toast(`已备份 ${file.apps.length} 个游戏的进度`);
+    } catch (e) {
+      toast(`备份失败：${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  private async restoreBackup(file: File): Promise<void> {
+    try {
+      const parsed = parseSaveFile(await file.text());
+      const report = applySaveFile(parsed, undefined, false);
+      // 存档里带了 jar 而库里没有的游戏，直接放进去——
+      // 否则恢复了进度却还得自己再找一遍 jar，等于没恢复
+      const existing = new Set((await listGames()).map((g) => g.id));
+      let added = 0;
+      for (const app of parsed.apps) {
+        const bytes = jarBytesOf(app);
+        if (!bytes) continue;
+        const id = await gameId(bytes.buffer as ArrayBuffer);
+        if (existing.has(id)) continue;
+        await saveGame({
+          id,
+          fileName: app.fileName,
+          name: app.name,
+          vendor: app.vendor,
+          size: bytes.length,
+          addedAt: file.lastModified || Date.now(),
+          lastPlayedAt: Date.now(),
+          iconDataUrl: null,
+          bytes: bytes.buffer as ArrayBuffer,
+        });
+        added += 1;
+      }
+      toast(`已恢复 ${report.apps} 个游戏的进度（写入 ${report.written} 项${report.skipped ? `，跳过 ${report.skipped} 项已有进度` : ''}${added ? `，新增 ${added} 个游戏` : ''}）`);
+      await this.showLibrary();
+    } catch (e) {
+      toast(`恢复失败：${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  /**
+   * 游戏内的存档菜单。
    *
-   * 导出是自包含的 `.jsav`：jar 本体 + RMS 全部 store + 触摸偏好，
-   * 所以既能备份，也能把游戏连同进度一起发给别人。
+   * 导出是自包含的 `.jsav`：jar + 进度 + 触摸偏好，可以把游戏连同
+   * 进度一起发给别人。导入能读单游戏存档，也能读全量备份——
+   * 文件里有几个游戏就写几个，所以这里不用问用户。
    */
   private showSaveMenu(stage: HTMLElement, player: GamePlayer): void {
-    let setStatus = (_text: string) => {};
+    const statusEl = h('div', { class: 'hint' });
+    const setStatus = (text: string) => {
+      statusEl.textContent = text;
+    };
 
     const doExport = () => {
       try {
-        const game = makeGameRef(player.info.name, player.info.vendor, `${player.info.name}.jar`, this.currentJarBytes);
-        const file = buildSaveFile(player.platform.rms, game, player.storageId);
-        downloadSaveFile(file, game.fileName);
-        const stores = Object.keys(file.rms).length;
-        setStatus(`已导出 ${stores} 个记录库，导入这个文件即可恢复进度。`);
+        const bytes = this.currentJarBytes;
+        const file = buildAppSave({ name: player.info.name, vendor: player.info.vendor, fileName: bytes.length ? `${player.info.name}.jar` : 'unknown.jar' }, player.storageId, bytes);
+        downloadSaveFile(file, player.info.name);
+        setStatus(`已导出 ${Object.keys(file.apps[0].rms).length} 个记录库${bytes.length ? `，含游戏本体 ${describeSize(bytes.length)}` : ''}。`);
       } catch (e) {
         setStatus(`导出失败：${(e as Error).message}`);
       }
@@ -344,25 +431,17 @@ export class App {
     const doImport = async (file: File, overwrite: boolean) => {
       try {
         const parsed = parseSaveFile(await file.text());
-        if (!checkSameGame(parsed, player.info.name, player.info.vendor)) {
-          setStatus(`这个存档属于《${parsed.game.name}》（${parsed.game.vendor || '未知厂商'}），与当前游戏不同。已按你选择的方式处理。`);
-        } else {
-          setStatus('');
+        const mine = findAppFor(parsed, player.info.name, player.info.vendor);
+        if (!mine && parsed.apps.length === 1) {
+          setStatus(`这个存档属于《${parsed.apps[0].name}》（${parsed.apps[0].vendor || '未知厂商'}），与当前游戏不同，仍会写回但可能读不出来。`);
         }
-        const { written, skipped } = applySaveFile(parsed, player.storageId, overwrite);
-        setStatus(
-          `导入完成：写入 ${written} 个记录库` + (skipped ? `，跳过 ${skipped} 个已存在的（没覆盖）` : '') +
-          '。需要重启游戏才会生效。',
-        );
+        const report = applySaveFile(parsed, player.storageId, overwrite);
+        setStatus(`导入完成：${report.apps} 个游戏，写入 ${report.written} 项${report.skipped ? `，跳过 ${report.skipped} 项已有进度` : ''}。重启游戏后生效。`);
       } catch (e) {
         setStatus(`导入失败：${(e as Error).message}`);
       }
     };
 
-    const statusEl = h('div', { class: 'hint' });
-    setStatus = (text: string) => {
-      statusEl.textContent = text;
-    };
     const fileInput = h('input', { attrs: { type: 'file', accept: '.jsav,application/json' } }) as HTMLInputElement;
     const overwriteInput = h('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
     fileInput.addEventListener('change', () => {
@@ -370,32 +449,30 @@ export class App {
       if (f) void doImport(f, overwriteInput.checked);
     });
 
-    const card = h(
-      'div',
-      { class: 'overlay-card' },
-      h('h2', { text: '存档' }),
-      h('p', { class: 'hint', text: '导出得到一个 .jsav 文件，含游戏本体和全部进度，可以自己留底，也可以发给同一个人直接玩。' }),
-      h(
-        'div',
-        { class: 'row' },
-        h('button', { class: 'btn primary', text: '导出存档', on: { click: doExport } }),
-        h('button', { class: 'btn', text: '导入存档…', on: { click: () => fileInput.click() } }),
-      ),
-      h(
-        'label',
-        { class: 'hint row' },
-        overwriteInput,
-        h('span', { text: '覆盖同名记录（默认只补空缺，保护当前进度）' }),
-      ),
-      fileInput,
-      statusEl,
-      h('div', { class: 'row' }, h('button', { class: 'btn', text: '关闭', on: { click: () => overlay.remove() } })),
-    );
-
     const overlay = h(
       'div',
       { class: 'overlay', on: { click: (e: MouseEvent) => e.target === overlay && overlay.remove() } },
-      card,
+      h(
+        'div',
+        { class: 'overlay-card' },
+        h('h2', { text: '存档' }),
+        h('p', { class: 'hint', text: '导出得到一个 .jsav 文件，含游戏本体和全部进度，可以自己留底，也可以发给同一个人直接玩。' }),
+        h(
+          'div',
+          { class: 'row' },
+          h('button', { class: 'btn primary', text: '导出存档', on: { click: doExport } }),
+          h('button', { class: 'btn', text: '导入存档…', on: { click: () => fileInput.click() } }),
+        ),
+        h(
+          'label',
+          { class: 'hint row' },
+          overwriteInput,
+          h('span', { text: '覆盖同名记录（默认只补空缺，保护当前进度）' }),
+        ),
+        fileInput,
+        statusEl,
+        h('div', { class: 'row' }, h('button', { class: 'btn', text: '关闭', on: { click: () => overlay.remove() } })),
+      ),
     );
     stage.append(overlay);
   }

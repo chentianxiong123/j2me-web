@@ -1,12 +1,13 @@
 import { base64FromBytes } from '../jvm/natives/helpers';
-import type { RmsService } from '../platform/rms';
 
 /**
  * 存档导入导出。
  *
- * 导出产物是一个自包含的 `.jsav` 文件（JSON）：
- * 游戏 jar + RMS 全部 record store + 少量偏好设置。
- * 这样既能备份存档，也���把游戏连同进度一起发给朋友。
+ * 只有一种格式、一个文件里可含多个游戏，用户不需要区分「备份」和「分享」：
+ *
+ * - 备份全部 → 一个 .jsav，含库里所有游戏 + 所有进度
+ * - 游戏内导出 → 一个 .jsav，只含这一个游戏（顺带可发给朋友）
+ * - 导入 → 自动看文件里有几个游戏，写回几个，不问
  */
 
 const FORMAT = 'j2me-web-save';
@@ -14,43 +15,57 @@ const FORMAT_VERSION = 1;
 const RMS_PREFIX = 'j2me-web:rms:';
 const TOUCH_PREF_KEY = 'j2me-web:touch-controls';
 
+export interface SaveApp {
+  name: string;
+  vendor: string;
+  fileName: string;
+  /**
+   * 导出时的存档身份。
+   *
+   * 写死进文件而不是靠 name|vendor 推导：推导在打包构建下对不上
+   * （打包版用固定 storageId，库界面版用清单推导），会认不出自己的存档。
+   */
+  storageId: string;
+  /** 游戏本体。为 null 表示只备份了进度（比如 jar 已不在库里）。 */
+  jarBase64: string | null;
+  /** RecordStore 名 -> 该 store 的原始 JSON 字符串 */
+  rms: Record<string, string>;
+}
+
 export interface SaveFile {
   format: typeof FORMAT;
   version: number;
   exportedAt: number;
-  game: {
-    name: string;
-    vendor: string;
-    fileName: string;
-    jarBase64: string;
-  };
-  /** store 名 -> RmsService 里存的原始 JSON 字符串 */
-  rms: Record<string, string>;
+  apps: SaveApp[];
   prefs: Record<string, string>;
 }
 
-export interface ImportResult {
-  game: SaveFile['game'];
-  rms: Record<string, string>;
-  prefs: Record<string, string>;
-  /** 是否是同一个游戏；false 时调用方应提醒用户存档可能不兼容 */
-  sameGame: boolean;
+export interface ApplyReport {
+  apps: number;
+  written: number;
+  skipped: number;
 }
 
-function storageIdOf(name: string, vendor: string): string {
-  return `${vendor}|${name}`;
-}
+// ---------------------------------------------------------------------------------------------
+// 收集
 
-/** 从 localStorage 里收集这个游戏的所有 RMS store 原始字符串。 */
-function collectRms(storageId: string): Record<string, string> {
-  const prefix = RMS_PREFIX + storageId + ':';
-  const out: Record<string, string> = {};
+/** 把 localStorage 里所有 j2me-web:rms:* 的内容按 storageId 分组。 */
+export function collectAllRms(): Map<string, Record<string, string>> {
+  const out = new Map<string, Record<string, string>>();
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key?.startsWith(prefix)) continue;
+      if (!key?.startsWith(RMS_PREFIX)) continue;
+      const rest = key.slice(RMS_PREFIX.length);
+      const sep = rest.indexOf(':');
+      if (sep < 0) continue;
+      const storageId = rest.slice(0, sep);
+      const name = rest.slice(sep + 1);
       const raw = localStorage.getItem(key);
-      if (raw !== null) out[key.slice(prefix.length)] = raw;
+      if (raw === null) continue;
+      let group = out.get(storageId);
+      if (!group) out.set(storageId, (group = {}));
+      group[name] = raw;
     }
   } catch {
     /* storage unavailable */
@@ -58,54 +73,77 @@ function collectRms(storageId: string): Record<string, string> {
   return out;
 }
 
-/**
- * 导出成一个可下载的 `.jsav` 文件。
- *
- * 走 rms 服务（而不是直接扫 localStorage）是有意的：
- * 它同时覆盖 localStorage 和 RmsService 的内存回退层，
- * 而内存回退层可能还没落盘。
- */
-export function buildSaveFile(rms: RmsService, game: SaveFile['game'], storageId: string): SaveFile {
-  const rmsData = { ...collectRms(storageId) };
-  // 内存里还没落盘的 store 也要算进去
-  for (const [name, raw] of Object.entries(rms.exportAll())) rmsData[name] ??= raw;
-  const rmsDataFinal = rmsData;
-  // prefs 用真实的 localStorage 键名，导入时才能原样写回去
+function collectRmsOf(storageId: string): Record<string, string> {
+  return collectAllRms().get(storageId) ?? {};
+}
+
+function collectPrefs(): Record<string, string> {
   const prefs: Record<string, string> = {};
   try {
     const touch = localStorage.getItem(TOUCH_PREF_KEY);
+    // 用真实 localStorage 键名，导入时才能原样写回去
     if (touch !== null) prefs[TOUCH_PREF_KEY] = touch;
   } catch {
     /* storage unavailable */
   }
-  return {
-    format: FORMAT,
-    version: FORMAT_VERSION,
-    exportedAt: Date.now(),
-    game,
-    rms: rmsDataFinal,
-    prefs,
-  };
+  return prefs;
 }
 
-export function saveFileToBlob(file: SaveFile): Blob {
-  return new Blob([JSON.stringify(file)], { type: 'application/json' });
+function wrap(app: SaveApp): SaveFile {
+  return { format: FORMAT, version: FORMAT_VERSION, exportedAt: Date.now(), apps: [app], prefs: collectPrefs() };
 }
 
-/** 触发浏览器下载。文件名带时间戳，方便区分多次导出。 */
-export function downloadSaveFile(file: SaveFile, fileName: string): void {
-  const stamp = new Date(file.exportedAt);
+/** 单个游戏的存档，用于分享。 */
+export function buildAppSave(game: { name: string; vendor: string; fileName: string }, storageId: string, bytes: Uint8Array): SaveFile {
+  return wrap({ ...game, storageId, jarBase64: base64FromBytes(bytes), rms: collectRmsOf(storageId) });
+}
+
+/**
+ * 全量备份：所有游戏的进度 + 库里所有 jar。
+ *
+ * jars 由调用方（IndexedDB）提供，这里只做拼装，方便离线测试。
+ */
+export function buildBackup(apps: Array<{ game: { name: string; vendor: string; fileName: string }; storageId: string; bytes: Uint8Array | null }>): SaveFile {
+  const allRms = collectAllRms();
+  const seen = new Map<string, SaveApp>();
+  for (const { game, storageId, bytes } of apps) {
+    // 同一个 storageId 已有条目就只补 jar，不重复
+    const existing = seen.get(storageId);
+    if (existing) {
+      if (existing.jarBase64 === null && bytes) existing.jarBase64 = base64FromBytes(bytes);
+      continue;
+    }
+    seen.set(storageId, {
+      ...game,
+      storageId,
+      jarBase64: bytes ? base64FromBytes(bytes) : null,
+      rms: allRms.get(storageId) ?? {},
+    });
+  }
+  // 库里有、但进度在 storageId 上不匹配的孤儿存档也带上，别弄丢
+  for (const [storageId, rms] of allRms) {
+    if (seen.has(storageId) || Object.keys(rms).length === 0) continue;
+    seen.set(storageId, { name: '(未知游戏)', vendor: '', fileName: 'unknown.jar', storageId, jarBase64: null, rms });
+  }
+  return { format: FORMAT, version: FORMAT_VERSION, exportedAt: Date.now(), apps: [...seen.values()], prefs: collectPrefs() };
+}
+
+// ---------------------------------------------------------------------------------------------
+// 文件
+
+export function downloadSaveFile(file: SaveFile, baseName: string): void {
+  const d = new Date(file.exportedAt);
   const pad = (n: number) => String(n).padStart(2, '0');
-  const tag = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}`;
-  const url = URL.createObjectURL(saveFileToBlob(file));
+  const tag = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  const n = file.apps.length;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${fileName.replace(/\.jar$/i, '')}-存档-${tag}.jsav`;
+  a.download = n === 1 ? `${baseName}-存档-${tag}.jsav` : `j2me-web-全部存档-${n}个游戏-${tag}.jsav`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-/** 解析上传的文本，校验格式与版本。 */
 export function parseSaveFile(text: string): SaveFile {
   let parsed: unknown;
   try {
@@ -118,45 +156,59 @@ export function parseSaveFile(text: string): SaveFile {
   if (typeof f.version !== 'number' || f.version > FORMAT_VERSION) {
     throw new Error(`存档版本 ${f.version} 比当前程序（${FORMAT_VERSION}）新，可能来自更新的版本`);
   }
-  if (!f.game?.jarBase64 || typeof f.game.jarBase64 !== 'string') throw new Error('存档里没有游戏本体');
-  if (f.rms != null && typeof f.rms !== 'object') throw new Error('存档的 rms 字段损坏');
+  if (!Array.isArray(f.apps) || f.apps.length === 0) throw new Error('存档里没有任何游戏');
+  for (const [i, app] of f.apps.entries()) {
+    if (!app || typeof app.storageId !== 'string' || !app.storageId) throw new Error(`第 ${i + 1} 个游戏缺少存档身份`);
+    if (app.rms != null && typeof app.rms !== 'object') throw new Error(`第 ${i + 1} 个游戏的 rms 字段损坏`);
+  }
   return {
     format: FORMAT,
     version: f.version,
     exportedAt: f.exportedAt ?? 0,
-    game: f.game,
-    rms: f.rms ?? {},
+    apps: f.apps.map((a) => ({ ...a, rms: a.rms ?? {}, jarBase64: a.jarBase64 ?? null })),
     prefs: f.prefs ?? {},
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// 写回
+
 /**
- * 把存档写回 localStorage。
+ * 写回存档。
  *
- * overwrite=false 时不动已有 store，只补缺失的——避免误覆盖用户正在玩的进度。
- * 偏好设置总是覆盖，因为它们与进度无关且用户刚主动导入了。
+ * `targetStorageId` 是当前游戏的身份。每个游戏的进度会同时写到
+ * 它自己的 storageId 下——这样「库界面版导出的存档」也能被
+ * 「打包版」认出来（两者 storageId 不同），不用做迁移。
+ *
+ * overwrite=false 时只补空缺，保护用户正在玩的进度。
  */
-export function applySaveFile(file: SaveFile, storageId: string, overwrite: boolean): { written: number; skipped: number } {
-  const prefix = RMS_PREFIX + storageId + ':';
+export function applySaveFile(file: SaveFile, targetStorageId?: string, overwrite = false): ApplyReport {
   let written = 0;
   let skipped = 0;
-  for (const [name, raw] of Object.entries(file.rms)) {
-    const key = prefix + name;
-    if (!overwrite) {
-      try {
-        if (localStorage.getItem(key) !== null) {
-          skipped += 1;
-          continue;
+  for (const app of file.apps) {
+    const targets = new Set([app.storageId]);
+    if (targetStorageId && app.name && app.name !== '(未知游戏)') targets.add(targetStorageId);
+    for (const storageId of targets) {
+      const prefix = RMS_PREFIX + storageId + ':';
+      for (const [name, raw] of Object.entries(app.rms)) {
+        const key = prefix + name;
+        if (!overwrite) {
+          try {
+            if (localStorage.getItem(key) !== null) {
+              skipped += 1;
+              continue;
+            }
+          } catch {
+            /* storage unavailable */
+          }
         }
-      } catch {
-        /* storage unavailable */
+        try {
+          localStorage.setItem(key, raw);
+          written += 1;
+        } catch {
+          /* quota exceeded or storage unavailable */
+        }
       }
-    }
-    try {
-      localStorage.setItem(key, raw);
-      written += 1;
-    } catch {
-      /* quota exceeded or storage unavailable */
     }
   }
   for (const [k, v] of Object.entries(file.prefs)) {
@@ -166,24 +218,23 @@ export function applySaveFile(file: SaveFile, storageId: string, overwrite: bool
       /* storage unavailable */
     }
   }
-  return { written, skipped };
+  return { apps: file.apps.length, written, skipped };
 }
 
-/** 导入前的兼容性判断，供 UI 提示用。 */
-export function checkSameGame(file: SaveFile, name: string, vendor: string): boolean {
-  return file.game.name === name && file.game.vendor === vendor;
+/** 这个存档是不是当前这个游戏的。名字对不上时 UI 要提示。 */
+export function findAppFor(file: SaveFile, name: string, vendor: string): SaveApp | undefined {
+  return file.apps.find((a) => a.name === name && a.vendor === vendor);
 }
 
 /** jar 字节，供导入后直接开玩。 */
-export function jarBytesOf(file: SaveFile): Uint8Array {
-  const bin = atob(file.game.jarBase64);
+export function jarBytesOf(app: SaveApp): Uint8Array | null {
+  if (!app.jarBase64) return null;
+  const bin = atob(app.jarBase64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 
-export function makeGameRef(name: string, vendor: string, fileName: string, bytes: Uint8Array): SaveFile['game'] {
-  return { name, vendor, fileName, jarBase64: base64FromBytes(bytes) };
+export function describeSize(bytes: number): string {
+  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(2)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
 }
-
-export { storageIdOf };

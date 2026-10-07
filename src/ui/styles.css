@@ -492,6 +492,38 @@ button {
   margin-top: 16px;
 }
 
+/* 库界面顶部的备份条 */
+.backup-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.backup-bar .hint {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.backup-bar .row {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+/* 说明文字 */
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 /* 存档对话框里的说明文字和勾选项 */
 .overlay-card .hint {
   color: var(--muted);
