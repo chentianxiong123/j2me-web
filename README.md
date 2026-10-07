@@ -105,6 +105,9 @@ J2ME_DEV_JAR=/path/to/game.jar
 
 部署：`npm run build` 后把 `dist/` 丢到任意静态服务器即可。构建使用相对路径，放在子目录（`github.io/<repo>`、`/games/j2me/`）也能正常工作。
 
+完整方法论（约束、选型轴、git-based vs artifact-based、五层验证）见
+**[docs/静态托管方法论.md](docs/静态托管方法论.md)**。
+
 ### 静态托管
 
 构建产物是**纯静态**，没有后端、没有 SSR、没有 WASM、没有 CDN 依赖，没有任何运行时外部请求。丢到哪儿都能跑：
@@ -126,6 +129,11 @@ npx vite build --config experiments/pack-jianxin/vite.pack.config.ts
 
 产物同样是纯静态，丢到任意静态托管即可（实测一份商业游戏：3 个文件
 1.72 MB，压缩后 1.20 MB）。游戏 jar 需要自己准备，不入仓库。
+
+**含商业游戏的产物不能用 git-based 托管**（Pages 从仓库构建，
+jar 进历史就等于公开分发且删不干净），要用 direct upload。
+判断依据见 [docs/静态托管方法论.md](docs/静态托管方法论.md) 第 4 章。
+
 详见 [experiments/README.md](experiments/README.md)。
 
 ---

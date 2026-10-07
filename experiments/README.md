@@ -32,6 +32,9 @@ node experiments/pack-jianxin/verify-dist.cjs    # 可选，校验内嵌的 jar 
 
 ### 静态托管
 
+> 完整的托管方法论（约束、选型轴、五层验证、git-based vs artifact-based）见
+> [../docs/静态托管方法论.md](../docs/静态托管方法论.md)。
+
 产物是**纯静态**，没有后端、没有服务端渲染、没有 WASM、没有 CDN 依赖，
 没有任何运行时外部请求。丢到哪儿都能跑：
 
@@ -42,7 +45,10 @@ cd experiments/pack-jianxin/dist && python3 -m http.server 8000
 - 任意静态托管：GitHub Pages、Cloudflare Pages、Nginx、对象存储……
 - 放子目录也可以，`base: './'` 走相对路径（`/games/jianxin/` 不会 404）
 - `file://` 直接双击 `index.html` 同样能跑
-- HTTPS 不是必需，但公网托管一般会强制
+- HTTPS 不是必需（没有用 `SharedArrayBuffer`，不需要跨源隔离），
+  公网托管平台一般会强制，但那是平台策略而非代码限制
+- **不要用 git-based 托管**：Pages 从仓库构建，jar 进历史等于公开分发，
+  且 git 里删不干净。要用 direct upload
 
 一份《仙剑奇侠传 忘情篇》实测：
 `index.html` + `app.js` + `index.css` 共 **3 个文件 1.72 MB**，
