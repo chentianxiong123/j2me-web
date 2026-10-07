@@ -56,6 +56,8 @@ export class GamePlayer {
   readonly jar: JarFile;
   readonly info: MidletInfo;
   readonly preset: GamePreset;
+  /** 实际使用的存档身份。导出/导入必须用它，不能重新推导。 */
+  readonly storageId: string;
   readonly screen: HTMLCanvasElement;
   readonly jvm: Jvm;
   readonly platform: Platform;
@@ -109,6 +111,7 @@ export class GamePlayer {
     };
     this.log = log;
 
+    this.storageId = window.__PACK__?.identity?.storageId ?? `${this.info.vendor}|${this.info.name}`;
     this.platform = new Platform({
       width,
       height,
@@ -116,7 +119,7 @@ export class GamePlayer {
       resources: this.jar.entries,
       // 打包构建会指定 storageId；默认仍从 jar 清单推导。
       // 同域名部署多个游戏包时，推导出的 vendor|name 可能撞车导致存档串档。
-      storageId: window.__PACK__?.identity?.storageId ?? `${this.info.vendor}|${this.info.name}`,
+      storageId: this.storageId,
       present: (surface) => this.screenCtx.drawImage(surface.canvas, 0, 0),
       vibrate: (ms) => {
         try {

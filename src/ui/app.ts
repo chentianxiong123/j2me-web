@@ -5,6 +5,14 @@ import { DEFAULT_KEYMAP, KEY_HELP, physicalCode } from '../player/keymap';
 import { type GameSummary, deleteGame, gameId, listGames, loadGame, saveGame, touchGame } from '../player/library';
 import { isPacked } from '../player/pack';
 import { GamePlayer, inspectJar } from '../player/player';
+import {
+  applySaveFile,
+  buildSaveFile,
+  checkSameGame,
+  downloadSaveFile,
+  makeGameRef,
+  parseSaveFile,
+} from '../player/saveio';
 import { h, toast } from './dom';
 import { TouchControls } from './touch';
 
@@ -22,6 +30,8 @@ function prefersTouch(): boolean {
 
 export class App {
   private player: GamePlayer | null = null;
+  /** 当前游戏的原始 jar 字节，导出存档时要用（JarFile 本身不保留原字节）。 */
+  private currentJarBytes: Uint8Array = new Uint8Array();
   private teardown: Array<() => void> = [];
 
   constructor(private readonly root: HTMLElement) {}
@@ -161,6 +171,7 @@ export class App {
 
   play(bytes: Uint8Array, fileName: string): void {
     this.stopPlayer();
+    this.currentJarBytes = bytes;
     let player: GamePlayer;
     try {
       player = new GamePlayer(bytes, fileName, { onHalt: (reason, message) => this.showHalt(reason, message, bytes, fileName) });
@@ -218,6 +229,7 @@ export class App {
         // 一个只能上传 jar 的空页面，纯属多余
         isPacked() ? null : h('button', { class: 'btn icon', text: '←', attrs: { title: '返回游戏列表', 'aria-label': '返回' }, on: { click: () => void this.showLibrary() } }),
         h('div', { class: 'player-title', text: player.info.name }),
+        h('button', { class: 'btn icon', text: '⇅', attrs: { title: '存档导入导出', 'aria-label': '存档' }, on: { click: () => this.showSaveMenu(stage, player) } }),
         h('button', { class: 'btn icon', text: '⌨', attrs: { title: '操作说明', 'aria-label': '操作说明' }, on: { click: () => this.showKeys(stage, player) } }),
         touchBtn,
         fullscreenBtn,
@@ -304,6 +316,86 @@ export class App {
         h('div', { class: 'keys' }, ...rows.flatMap(([key, action]) => [h('kbd', { text: key }), h('span', { text: action })])),
         h('div', { class: 'row' }, h('button', { class: 'btn primary', text: '知道了', on: { click: () => overlay.remove() } })),
       ),
+    );
+    stage.append(overlay);
+  }
+
+  /**
+   * 存档导入导出对话框。
+   *
+   * 导出是自包含的 `.jsav`：jar 本体 + RMS 全部 store + 触摸偏好，
+   * 所以既能备份，也能把游戏连同进度一起发给别人。
+   */
+  private showSaveMenu(stage: HTMLElement, player: GamePlayer): void {
+    let setStatus = (_text: string) => {};
+
+    const doExport = () => {
+      try {
+        const game = makeGameRef(player.info.name, player.info.vendor, `${player.info.name}.jar`, this.currentJarBytes);
+        const file = buildSaveFile(player.platform.rms, game, player.storageId);
+        downloadSaveFile(file, game.fileName);
+        const stores = Object.keys(file.rms).length;
+        setStatus(`已导出 ${stores} 个记录库，导入这个文件即可恢复进度。`);
+      } catch (e) {
+        setStatus(`导出失败：${(e as Error).message}`);
+      }
+    };
+
+    const doImport = async (file: File, overwrite: boolean) => {
+      try {
+        const parsed = parseSaveFile(await file.text());
+        if (!checkSameGame(parsed, player.info.name, player.info.vendor)) {
+          setStatus(`这个存档属于《${parsed.game.name}》（${parsed.game.vendor || '未知厂商'}），与当前游戏不同。已按你选择的方式处理。`);
+        } else {
+          setStatus('');
+        }
+        const { written, skipped } = applySaveFile(parsed, player.storageId, overwrite);
+        setStatus(
+          `导入完成：写入 ${written} 个记录库` + (skipped ? `，跳过 ${skipped} 个已存在的（没覆盖）` : '') +
+          '。需要重启游戏才会生效。',
+        );
+      } catch (e) {
+        setStatus(`导入失败：${(e as Error).message}`);
+      }
+    };
+
+    const statusEl = h('div', { class: 'hint' });
+    setStatus = (text: string) => {
+      statusEl.textContent = text;
+    };
+    const fileInput = h('input', { attrs: { type: 'file', accept: '.jsav,application/json' } }) as HTMLInputElement;
+    const overwriteInput = h('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files?.[0];
+      if (f) void doImport(f, overwriteInput.checked);
+    });
+
+    const card = h(
+      'div',
+      { class: 'overlay-card' },
+      h('h2', { text: '存档' }),
+      h('p', { class: 'hint', text: '导出得到一个 .jsav 文件，含游戏本体和全部进度，可以自己留底，也可以发给同一个人直接玩。' }),
+      h(
+        'div',
+        { class: 'row' },
+        h('button', { class: 'btn primary', text: '导出存档', on: { click: doExport } }),
+        h('button', { class: 'btn', text: '导入存档…', on: { click: () => fileInput.click() } }),
+      ),
+      h(
+        'label',
+        { class: 'hint row' },
+        overwriteInput,
+        h('span', { text: '覆盖同名记录（默认只补空缺，保护当前进度）' }),
+      ),
+      fileInput,
+      statusEl,
+      h('div', { class: 'row' }, h('button', { class: 'btn', text: '关闭', on: { click: () => overlay.remove() } })),
+    );
+
+    const overlay = h(
+      'div',
+      { class: 'overlay', on: { click: (e: MouseEvent) => e.target === overlay && overlay.remove() } },
+      card,
     );
     stage.append(overlay);
   }

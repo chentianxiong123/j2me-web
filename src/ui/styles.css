@@ -492,6 +492,24 @@ button {
   margin-top: 16px;
 }
 
+/* 存档对话框里的说明文字和勾选项 */
+.overlay-card .hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.overlay-card .hint.row {
+  justify-content: flex-start;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.overlay-card .hint.row input {
+  width: auto;
+  margin: 0;
+}
+
 .keys {
   display: grid;
   grid-template-columns: auto 1fr;
