@@ -167,10 +167,10 @@ jar 进历史就等于公开分发且删不干净），要用 direct upload。
 
 | 项目 | 说明 |
 | --- | --- |
-| [xianjian-wangqing-remake](https://github.com/chentianxiong123/xianjian-wangqing-remake) | 《仙剑奇侠传-忘情篇》的 J2ME 逆向工程与复刻尝试（已结案中止，剧情覆盖率 20.6%）。它的 73 类反编译源码、9976 个地图对象、1146 条脚本是**认识这个游戏内部如何工作的权威资料** —— 本运行时遇到反常行为时的对照物。两者互补：它负责解释清楚，本项目负责跑起来。 |
+| [xianjian-wangqing-web](https://github.com/chentianxiong123/xianjian-wangqing-web) | 《仙剑奇侠传-忘情篇》的 J2ME 逆向工程与复刻尝试（已结案中止，剧情覆盖率 20.6%）。它的 73 类反编译源码、9976 个地图对象、1146 条脚本是**认识这个游戏内部如何工作的权威资料** —— 本运行时遇到反常行为时的对照物。两者互补：它负责解释清楚，本项目负责跑起来。 |
 
 也可以看那份文档：它结案时写的
-[「替代方案：别复刻了，直接跑原版 jar」](https://github.com/chentianxiong123/xianjian-wangqing-remake/blob/master/4-文档/替代方案-j2me-web.md)
+[「替代方案：别复刻了，直接跑原版 jar」](https://github.com/chentianxiong123/xianjian-wangqing-web/blob/master/4-文档/替代方案-j2me-web.md)
 —— 里面有本仓库静态部署、单游戏打包、存档导入导出的用法摘录，
 以及「测试全绿 ≠ 游戏能玩」这类教训。
 
